@@ -227,7 +227,7 @@ def walk_and_integrate(fh, dEicdt_smooth, interval_length, max_flux_threshold,
         
         # Setup integrand for integration. This contains multiple
         # multiplicative terms to control different aspects of the value.
-        mlat_direction = -np.sign(np.diff(mlat))
+        mlat_direction = -np.sign(np.diff(np.abs(mlat)))
 
         ion_d_ener = fh['ion_d_ener'][:, start_time_idx:end_time_idx]
         ion_d_flux = fh['ion_d_flux'][:, start_time_idx:end_time_idx]
