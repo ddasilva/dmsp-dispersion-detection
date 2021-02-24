@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """Searches DMSP dataset for dispersion events, as defined
 by the dispersion event detection algorithm developed by da
-Silve in 2020.
+Silva in 2020.
 """
 import argparse
 from datetime import datetime, timedelta
@@ -19,7 +19,6 @@ DEFAULT_INTERVAL_LENGTH = 60
 
 DEFAULT_DENSITY_LOG_THRESHOLD = 7.25  # eV
 
-#DEFAULT_INTEGRAL_THRESHOLD = 0.7  # Log eV
 DEFAULT_INTEGRAL_THRESHOLD = 0.6  # Log eV
 
 DEFAULT_MIN_MLAT = 55
