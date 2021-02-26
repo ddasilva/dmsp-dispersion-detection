@@ -12,19 +12,20 @@ import os
 import pandas as pd
 import progressbar
 import pytz
+from spacepy import pycdf
 import sys
 
 
-DEFAULT_INTERVAL_LENGTH = 60
+INTERVAL_LENGTH = 60              # seconds
+INTEGRAL_THRESHOLD = 0.9
 
-DEFAULT_DENSITY_LOG_THRESHOLD = 7.25  # eV
+MIN_DENSITY = 10**7.25            # cm^-3
+MIN_MLAT = 55                     # degrees
+MAX_ENERGY_ANALYZED = 10**3.5     # eV
+MAX_BZ = -3.0                     # nT 
+MIN_FLUX_AT_EIC = 10**6.0         # spectrogram units
+MIN_POS_INTEGRAL_FRAC = 0.8       # fraction
 
-DEFAULT_INTEGRAL_THRESHOLD = 0.6  # Log eV
-
-DEFAULT_MIN_MLAT = 55
-
-DEFAULT_FLUX_AT_EIC_THRESHOLD = 10**5.5
-DEFAULT_UPPER_AREA_FRAC_THRESHOLD = 0.8
 
 
 def main():
@@ -32,30 +33,35 @@ def main():
     # Parse command line arguments
     parser = argparse.ArgumentParser()
     parser.add_argument('dmsp_file')
-    parser.add_argument('-I', '--interval-length', default=DEFAULT_INTERVAL_LENGTH,
+    parser.add_argument('omniweb_file')
+    parser.add_argument('-I', '--interval-length', default=INTERVAL_LENGTH,
                         type=float,
                         help='Interval length (seconds)')
     args = parser.parse_args()
 
-    # Check file exists
+    # Check files exists
     if not os.path.exists(args.dmsp_file):
-        print(f'File {dmsp_file} does not exist', file=sys.stderr)
+        print(f'File {args.dmsp_file} does not exist', file=sys.stderr)
         sys.exit(1)
 
+    if not os.path.exists(args.omniweb_file):
+        print(f'File {args.omniweb_file} does not exist', file=sys.stderr)
+        sys.exit(1)
+    
     # Calculate  smoothed dEic/dt in log-space
-    fh = read_file(args.dmsp_file)
+    dmsp_fh, omniweb_fh = read_files(args.dmsp_file, args.omniweb_file, args)
 
-    dEicdt_smooth, Eic_smooth = estimate_log_Eic_smooth_derivative(fh)
+    dEicdt_smooth, Eic_smooth = estimate_log_Eic_smooth_derivative(dmsp_fh)
 
     df_match = walk_and_integrate(
-        fh, dEicdt_smooth, Eic_smooth, args.interval_length
+        dmsp_fh, omniweb_fh, dEicdt_smooth, Eic_smooth, args.interval_length
     )
 
     # Output intervals to terminal
     print(df_match.to_string(index=False))
     
 
-def read_file(filename):
+def read_files(dmsp_filename, omniweb_file):
     """Read DMSP hdf file and read variables into a dictionary.
     
     Args
@@ -63,30 +69,45 @@ def read_file(filename):
     Returns
       dictionary mapping parameters to file
     """
+    # Read DMSP Data
+    # ------------------------------------------------------------------------------------
     # Open file
-    hdf = h5py.File(filename, 'r')
+    hdf = h5py.File(dmsp_filename, 'r')
 
     # Populate file handle dictionary 
-    fh = {}    
-    fh['t'] = np.array(
+    dsmp_fh = {}    
+    dsmp_fh['t'] = np.array(
         [datetime(1970, 1, 1, tzinfo=pytz.utc) + timedelta(seconds=i)
          for i in hdf['Data']['Array Layout']['timestamps'][:]]
     )
-    fh['ch_energy'] = hdf['Data']['Array Layout']['ch_energy'][:]
-    fh['mlat'] = hdf['Data']['Array Layout']['1D Parameters']['mlat'][:]
-    fh['mlt'] = hdf['Data']['Array Layout']['1D Parameters']['mlt'][:]
-    fh['ion_d_flux'] = hdf['Data']['Array Layout']['2D Parameters']['ion_d_flux'][:]
-    fh['ion_d_ener'] = hdf['Data']['Array Layout']['2D Parameters']['ion_d_ener'][:]
-    fh['density'] = 4 * np.pi * np.trapz(fh['ion_d_flux'].T, fh['ch_energy'], axis=1)
-    fh['peak_flux'] = np.max(fh['ion_d_ener'], axis=0)
+    dsmp_fh['ch_energy'] = hdf['Data']['Array Layout']['ch_energy'][:]
+    dsmp_fh['mlat'] = hdf['Data']['Array Layout']['1D Parameters']['mlat'][:]
+    dsmp_fh['mlt'] = hdf['Data']['Array Layout']['1D Parameters']['mlt'][:]
+    dsmp_fh['ion_d_flux'] = hdf['Data']['Array Layout']['2D Parameters']['ion_d_flux'][:]
+    dsmp_fh['ion_d_ener'] = hdf['Data']['Array Layout']['2D Parameters']['ion_d_ener'][:]
+    dsmp_fh['density'] = 4 * np.pi * np.trapz(dsmp_fh['ion_d_flux'].T, dsmp_fh['ch_energy'], axis=1)
+    dsmp_fh['peak_flux'] = np.max(dsmp_fh['ion_d_ener'], axis=0)
 
     # Close file
     hdf.close()
+    
+    # Read OMNIWeb Data
+    # ------------------------------------------------------------------------------------
+    omniweb_cdf = pycdf.CDF(omniweb_file)
 
-    return fh
+    omniweb_fh = {}
+    omniweb_fh['t'] = np.array([
+        time.replace(tzinfo=pytz.utc)
+        for time in omniweb_cdf['Epoch'][:]
+    ])
+    omniweb_fh['Bz'] = omniweb_cdf['BZ_GSM'][:]
+
+    omniweb_cdf.close()
+
+    return dsmp_fh, omniweb_fh
 
 
-def estimate_Eic(fh, i, j, frac=.1):    
+def estimate_Eic(dmsp_fh, i, j, frac=.1):    
     """Calculates the Eic parameter-- energy level with 10% of peak flux.
 
     Starting at the energy level of peak flux, works downwards and selects the
@@ -95,19 +116,20 @@ def estimate_Eic(fh, i, j, frac=.1):
     See Also: Lockwood 1992, Journal of Geophysical Research
     
     Args
-      fh: file handle (as returned by read_file)
+      dmsp_fh: file handle (as returned by read_files)
       i: start index to limit search
       j: end index to limit search
       frac: algorithm parameter; fraction of peak flux to use for energy search
     Returns
       Eic: floating point numpy array
     """
-    flux_max = fh['ion_d_ener'][:, i:j].max(axis=0)
-    flux_max_ind = fh['ion_d_ener'][:, i:j].argmax(axis=0)
+    k = dmsp_fh['ch_energy'].searchsorted(MAX_ENERGY_ANALYZED)
+    flux_max = dmsp_fh['ion_d_ener'][:k, i:j].max(axis=0)
+    flux_max_ind = dmsp_fh['ion_d_ener'][:k, i:j].argmax(axis=0) # over time
 
     # holds channels with flux above frac * max flux
-    threshold_match_mask = (fh['ion_d_ener'][:, i:j] > frac * flux_max) 
-    fill_mask = np.zeros(fh['t'][i:j].shape, dtype=bool)
+    threshold_match_mask = (dmsp_fh['ion_d_ener'][:k, i:j] > frac * flux_max)
+    fill_mask = np.zeros(dmsp_fh['t'][i:j].shape, dtype=bool)
     
     for jj, kk in enumerate(flux_max_ind):
         threshold_match_mask[kk:, jj] = 0
@@ -117,14 +139,14 @@ def estimate_Eic(fh, i, j, frac=.1):
             fill_mask[jj] = True
 
     # select last true value under max flux energy
-    n_channels = len(fh['ch_energy'])
+    n_channels = k
     ind = n_channels - 1 - threshold_match_mask[::-1, :].argmax(axis=0)
 
     # if no points > frac * max flux under max flux energy, then just use
     # max flux energy
-    Eic = fh['ch_energy'][ind].copy()
-    Eic[fill_mask] = fh['ch_energy'][flux_max_ind[fill_mask]] 
-                                                           
+    Eic = dmsp_fh['ch_energy'][ind].copy()
+    Eic[fill_mask] = dmsp_fh['ch_energy'][flux_max_ind[fill_mask]] 
+
     return Eic
 
 
@@ -142,29 +164,29 @@ def find_moving_average(a, window_size) :
     return np.convolve(a, np.ones((window_size,))/window_size, mode='same')
 
 
-def estimate_log_Eic_smooth_derivative(fh, eic_window_size=11,
-                                       eic_deriv_window_size=5):
+def estimate_log_Eic_smooth_derivative(dmsp_fh, eic_window_size=11,  # 11
+                                       eic_deriv_window_size=5):  # 5
     """Calculate the smoothed derivative of the smoothed Log10(Eic) parameter.
     
     Args
-      fh: file handle returned by read_file()
+      dmsp_fh: file handle returned by read_files()
     Returns
-      dEicdt_smooth: smoothed derivative corresponding to times found in fh['t']
-      Eic_smooth: smoothed Eic cooresponding to times found in fh['t']
+      dEicdt_smooth: smoothed derivative corresponding to times found in dmsp_fh['t']
+      Eic_smooth: smoothed Eic cooresponding to times found in dmsp_fh['t']
     """
     # Calcualte the Eic parameter. Throughout this function, the Eic is in
     # log-space.
-    Eic = np.log10(estimate_Eic(fh, i=0, j=fh['t'].size))
+    Eic = np.log10(estimate_Eic(dmsp_fh, i=0, j=dmsp_fh['t'].size))
     Eic_smooth = find_moving_average(Eic, eic_window_size)
 
-    en_inds = np.log10(fh['ch_energy']).searchsorted(Eic_smooth)
+    en_inds = np.log10(dmsp_fh['ch_energy']).searchsorted(Eic_smooth)
     en_inds = [min(i, 18) for i in en_inds]
-    flux_at_Eic = fh['ion_d_ener'][en_inds, np.arange(Eic.size)]
-    flux_mask = (flux_at_Eic > DEFAULT_FLUX_AT_EIC_THRESHOLD)
+    flux_at_Eic = dmsp_fh['ion_d_ener'][en_inds, np.arange(Eic.size)]
+    #flux_mask = (flux_at_Eic > MIN_FLUX_AT_EIC)
     
-    for i, cur_is_above in enumerate(flux_mask):
-        if not cur_is_above:
-            Eic_smooth[i] = np.nan
+    #for i, cur_is_above in enumerate(flux_mask):
+    #    if not cur_is_above:
+    #        Eic_smooth[i] = np.nan
     
     # Find the smoothed derivative of the smoothed log10(Eic) function. For sake
     # of simplicity, the derivative is estimated with a forward difference.
@@ -172,7 +194,7 @@ def estimate_log_Eic_smooth_derivative(fh, eic_window_size=11,
     dEic[:-1] = np.diff(Eic_smooth)
     dEic[-1] = dEic[-2]                       # copy last value to retain shape
     
-    dt = [delta.total_seconds() for delta in np.diff(fh['t'])]
+    dt = [delta.total_seconds() for delta in np.diff(dmsp_fh['t'])]
     dt.append(dt[-1])                         # copy last value to retain shape)
     
     dEicdt_smooth = find_moving_average(dEic/dt, eic_deriv_window_size)
@@ -183,15 +205,16 @@ def estimate_log_Eic_smooth_derivative(fh, eic_window_size=11,
     return dEicdt_smooth, Eic_smooth
 
 
-def walk_and_integrate(fh, dEicdt_smooth, Eic_smooth, interval_length, 
+def walk_and_integrate(dmsp_fh, omniweb_fh, dEicdt_smooth, Eic_smooth, interval_length, 
                        return_integrand=False):
     """Walk through windows in the file and test for matching intervals with
     integration of the metric function.
     
     Args
-      fh: file handle returned by read_file()
-      dEicdt_smooth: smoothed derivative corresponding to times found in fh['t']
-      Eic_smooth: smoothed Eic cooresponding to times found in fh['t']
+      dmsp_fh: file handle returned by read_files()
+      omniweb_fh: file handle returned by read_files()
+      dEicdt_smooth: smoothed derivative corresponding to times found in dmsp_fh['t']
+      Eic_smooth: smoothed Eic cooresponding to times found in dmsp_fh['t']
       interval_length: length of interval
       return_integrand: return array of integrand values
     """
@@ -199,58 +222,63 @@ def walk_and_integrate(fh, dEicdt_smooth, Eic_smooth, interval_length,
     interval_length = timedelta(seconds=interval_length)
     bar = progressbar.ProgressBar()
     matching_intervals = IntervalTree()
-    integrand_save = np.zeros(fh['t'].size)
-    integral_save = np.nan * np.zeros(fh['t'].size)
-    upper_area_frac_save = np.nan * integrand_save.copy() 
+    integrand_save = np.zeros(dmsp_fh['t'].size)
+    integral_save = np.nan * np.zeros(dmsp_fh['t'].size)
+    pos_integral_frac_save = np.nan * integrand_save.copy() 
     
     # Walk through timeseries 
-    for start_time_idx, start_time in bar(list(enumerate(fh['t']))):
+    for start_time_idx, start_time in bar(list(enumerate(dmsp_fh['t']))):
+        # First, check that the minutely Bz measurement from OMNIWeb associated
+        # with the midpoint of this interval is less than the threshold.
+        Bz_test_time = start_time + timedelta(seconds=INTERVAL_LENGTH/2)
+        Bz = omniweb_fh['Bz'][omniweb_fh['t'].searchsorted(Bz_test_time)]
+
+        if Bz > MAX_BZ:
+            continue
+        
         # Determine end time of interval. If less than `interval_length` from
         # the end of the file, the interval may be less than `interval_length`.
-        end_time_idx = fh['t'].searchsorted(start_time + interval_length)
+        end_time_idx = dmsp_fh['t'].searchsorted(start_time + interval_length)
 
-        if end_time_idx > fh['t'].size:
-            end_time_idx = fh['t'].size
+        if end_time_idx > dmsp_fh['t'].size:
+            end_time_idx = dmsp_fh['t'].size
 
-        end_time = fh['t'][end_time_idx - 1]
+        end_time = dmsp_fh['t'][end_time_idx - 1]
 
         # Only check the interval if in the magnetic latitude range
         # |mlat| > 60 deg.
-        mlat = fh['mlat'][start_time_idx:end_time_idx]
+        mlat = dmsp_fh['mlat'][start_time_idx:end_time_idx]
 
-        if not np.all(np.abs(mlat) > DEFAULT_MIN_MLAT):
+        if not np.all(np.abs(mlat) > MIN_MLAT):
             continue
         
         # Setup integrand for integration. This contains multiple
         # multiplicative terms to control different aspects of the value.
         mlat_direction = -np.sign(np.diff(np.abs(mlat)))
-
-        ion_d_ener = fh['ion_d_ener'][:, start_time_idx:end_time_idx]
-        ion_d_flux = fh['ion_d_flux'][:, start_time_idx:end_time_idx]
         
         with np.errstate(divide='ignore'):
-            density_log = np.log10(fh['density'][start_time_idx:end_time_idx] + .01)
+            density_log = np.log10(dmsp_fh['density'][start_time_idx:end_time_idx] + .01)
         
-        density_mask = (density_log > DEFAULT_DENSITY_LOG_THRESHOLD).astype(int)        
-        
-        en_inds = np.log10(fh['ch_energy']).searchsorted(Eic_smooth[start_time_idx:end_time_idx])
+        density_mask = (density_log > np.log10(MIN_DENSITY)).astype(int)        
+
+        en_inds = np.log10(dmsp_fh['ch_energy']).searchsorted(Eic_smooth[start_time_idx:end_time_idx])
         en_inds = [min(i, 18) for i in en_inds]
-        flux_at_Eic = fh['ion_d_ener'][en_inds, np.arange(start_time_idx, end_time_idx)]
+        flux_at_Eic = dmsp_fh['ion_d_ener'][en_inds, np.arange(start_time_idx, end_time_idx)]
         flux_at_Eic[np.isnan(Eic_smooth[start_time_idx:end_time_idx])] = np.nan
-        
+
         with np.errstate(invalid='ignore'):
             flux_at_Eic_mask = (
-                np.isfinite(flux_at_Eic) & (flux_at_Eic > DEFAULT_FLUX_AT_EIC_THRESHOLD)
+                np.isfinite(flux_at_Eic) & (flux_at_Eic > MIN_FLUX_AT_EIC)
             ).astype(int)
         
         integrand = (
             mlat_direction *
             density_mask[:-1] *
-            flux_at_Eic_mask[:-1] * 
+            flux_at_Eic_mask[:-1] *
             dEicdt_smooth[start_time_idx:end_time_idx-1]
         )
 
-        t = fh['t'][start_time_idx:end_time_idx]
+        t = dmsp_fh['t'][start_time_idx:end_time_idx]
         dt = [delta.total_seconds() for delta in np.diff(t)]
 
         if integrand.size > 0:
@@ -260,7 +288,7 @@ def walk_and_integrate(fh, dEicdt_smooth, Eic_smooth, interval_length,
         
         # Compute integral of the integrand over increments of dt using
         # rectangular integraion
-        t = fh['t'][start_time_idx:end_time_idx]
+        t = dmsp_fh['t'][start_time_idx:end_time_idx]
         dt = np.array([delta.total_seconds() for delta in np.diff(t)])
 
         integral = np.sum(integrand * dt)
@@ -269,11 +297,11 @@ def walk_and_integrate(fh, dEicdt_smooth, Eic_smooth, interval_length,
         abs_integral =  np.sum(np.abs(integrand) * dt)
         
         if abs_integral > 0:
-            upper_area_frac = upper_integral / abs_integral
+            pos_integral_frac = upper_integral / abs_integral
         else:
-            upper_area_frac = 0
+            pos_integral_frac = 0
         
-        upper_area_frac_save[start_time_idx] = upper_area_frac
+        pos_integral_frac_save[start_time_idx] = pos_integral_frac
         integral_save[start_time_idx] = integral
         
         # Collect metadata used supplemented with interval if the interval is
@@ -284,13 +312,13 @@ def walk_and_integrate(fh, dEicdt_smooth, Eic_smooth, interval_length,
         
         # The test/accept condition on the integral value and the fraction of
         # values above zero.
-        #print(start_time, integrand_save[start_time_idx:end_time_idx-1].sum(), integrand.sum(), upper_area_frac)
-        if (integral > DEFAULT_INTEGRAL_THRESHOLD and upper_area_frac > DEFAULT_UPPER_AREA_FRAC_THRESHOLD):
+        if (integral > INTEGRAL_THRESHOLD and pos_integral_frac > MIN_POS_INTEGRAL_FRAC):
             matching_intervals[start_time:end_time] = {
                 'integral': integral,
                 'integrand_min': integrand_min,
                 'integrand_mean': integrand_mean,
                 'integrand_max': integrand_max,
+                'Bz': Bz,
             }
         
     # Merge overlapping intervals into common intervals. Retain the 
@@ -314,6 +342,7 @@ def walk_and_integrate(fh, dEicdt_smooth, Eic_smooth, interval_length,
     for interval in sorted(matching_intervals):
         df_match_rows.append([
             interval.begin, interval.end,
+            max(interval.data['Bz']),
             min(interval.data['integral']),
             np.mean(list(interval.data['integral'])),
             max(interval.data['integral']),
@@ -324,12 +353,13 @@ def walk_and_integrate(fh, dEicdt_smooth, Eic_smooth, interval_length,
 
     df_match = pd.DataFrame(df_match_rows, columns=[
         'start_time', 'end_time',
+        'Bz_mean',
         'integral_min', 'integral_mean', 'integral_max',
         'integrand_min', 'integrand_mean', 'integrand_max',
     ])
 
     if return_integrand:
-        return df_match, integrand_save, integral_save, upper_area_frac_save
+        return df_match, integrand_save, integral_save, pos_integral_frac_save
     else:
         return df_match
 

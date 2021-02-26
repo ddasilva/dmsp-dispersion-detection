@@ -10,4 +10,6 @@ dependencies:
   - pip
   - pip:
     - intervaltree==3.1.0
+    - nbstripout==0.3.9
     - progressbar2==3.53.1
+    - spacepy==0.2.1
