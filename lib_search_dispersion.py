@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """Searches DMSP dataset for dispersion events, as defined
 by the dispersion event detection algorithm developed by da
-Silva in 2020.
+Silva in 2020-2021.
 """
 import argparse
 from datetime import datetime, timedelta
@@ -34,9 +34,6 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('dmsp_file')
     parser.add_argument('omniweb_file')
-    parser.add_argument('-I', '--interval-length', default=INTERVAL_LENGTH,
-                        type=float,
-                        help='Interval length (seconds)')
     args = parser.parse_args()
 
     # Check files exists
@@ -54,7 +51,7 @@ def main():
     dEicdt_smooth, Eic_smooth = estimate_log_Eic_smooth_derivative(dmsp_fh)
 
     df_match = walk_and_integrate(
-        dmsp_fh, omniweb_fh, dEicdt_smooth, Eic_smooth, args.interval_length
+        dmsp_fh, omniweb_fh, dEicdt_smooth, Eic_smooth, INTERVAL_LENGTH,
     )
 
     # Output intervals to terminal
