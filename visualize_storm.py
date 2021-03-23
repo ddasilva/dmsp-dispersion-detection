@@ -41,6 +41,7 @@ def main():
             omniweb_file=case_file['OMNIWEB_FILE'],
             outfolder=case_file['PLOT_OUTPUT'],
             no_plots=args.no_plot,
+            reverse_effect=case_file['REVERSE_EFFECT'],
         )
         df_matches.append(df_match)
     
@@ -55,7 +56,8 @@ def main():
     df.to_csv(case_file['EVENT_OUTPUT'], index=0)
 
     
-def search_events(dmsp_file, omniweb_file, outfolder=None, no_plots=False):
+def search_events(dmsp_file, omniweb_file, outfolder=None, no_plots=False,
+                  reverse_effect=False):
     """Search for events in a DMSP file.
     
     Args
@@ -63,6 +65,8 @@ def search_events(dmsp_file, omniweb_file, outfolder=None, no_plots=False):
       omniweb_file: Path to HDF5 OMNIWeb file holding magnetic field data (monthly)
       outfolder: Path to write plots to (assuming no_plots=False)
       no_plots: Set to True to disable writing plots to disk
+      reverse_effect: Search for effects in the opposite direction with a magnetic
+        field set to the opposite of the coded threshold.
     Returns
       Pandas DataFrame holding events found in the file
     """
@@ -73,7 +77,7 @@ def search_events(dmsp_file, omniweb_file, outfolder=None, no_plots=False):
 
     df_match, integrand, integral, upper_area_frac = lib_search_dispersion.walk_and_integrate(
         dmsp_fh, omniweb_fh, dEicdt_smooth, Eic, lib_search_dispersion.INTERVAL_LENGTH,
-        return_integrand=True
+        reverse_effect=reverse_effect, return_integrand=True
     )
     
     # Do plotting --------------------------------------------------
@@ -94,8 +98,13 @@ def search_events(dmsp_file, omniweb_file, outfolder=None, no_plots=False):
         axes[0].set_ylabel('Log Energy [eV] - Ions')
         
         time_length = row_match.end_time - row_match.start_time
-        fig.suptitle(f'{time_length.total_seconds() / 60:.1f} minutes : '
-                     f'{row_match.start_time.isoformat()} - {row_match.end_time.isoformat()}', fontweight='bold')
+        suptitle = (
+            f'{time_length.total_seconds() / 60:.1f} minutes : '
+            f'{row_match.start_time.isoformat()} - {row_match.end_time.isoformat()}'
+        )
+        if reverse_effect:
+            suptitle += ' [reverse]'    
+        fig.suptitle(suptitle, fontweight='bold')
         
         title = 'MLAT = (%.1f deg to %.1f deg)' % (dmsp_fh['mlat'][i], dmsp_fh['mlat'][j])
         title += ' Northward' if dmsp_fh['mlat'][j] > dmsp_fh['mlat'][i] else ' Southward'
@@ -109,11 +118,13 @@ def search_events(dmsp_file, omniweb_file, outfolder=None, no_plots=False):
         axes[1].set_ylabel('D(t) [eV/s]')
         
         if not no_plots:
+            
             out_name = outfolder + '/'
             out_name += f'{os.path.basename(dmsp_file)}_'
             out_name += f"{row_match.start_time.isoformat()}_"
             out_name += f"{row_match.end_time.isoformat()}.png"
-            
+
+            os.makedirs(outfolder, exist_ok=True)
             plt.savefig(out_name)
             plt.close()
             

@@ -16,7 +16,8 @@ def main():
     omniweb_file = 'data/' + storm_name + '/omni_hro_1min_20031101_v01.cdf'
     plot_output = 'plots/' + storm_name
     event_output = 'data/' + storm_name + '.csv'
-
+    reverse_effect = False
+    
     days = list(range(18, 24))
     dmsp_glob = 'data/'+ storm_name + '/**/*200311%02d*.hdf5'
 
@@ -37,6 +38,7 @@ def main():
         'OMNIWEB_FILE': omniweb_file,
         'PLOT_OUTPUT': plot_output,
         'EVENT_OUTPUT': event_output,
+        'REVERSE_EFFECT': reverse_effect,
         
     }
     case_filename = 'case_files/' + storm_name + '.json'

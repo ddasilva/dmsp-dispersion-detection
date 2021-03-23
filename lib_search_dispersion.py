@@ -22,7 +22,7 @@ INTEGRAL_THRESHOLD = 0.9
 MIN_DENSITY = 10**7.25            # cm^-3
 MIN_MLAT = 55                     # degrees
 MAX_ENERGY_ANALYZED = 10**3.5     # eV
-MAX_BZ = -3.0                     # nT 
+MAX_BZ_STRENGTH = 3.0             # nT, must be >=0 (sign will be assigned)
 MIN_FLUX_AT_EIC = 10**6.0         # spectrogram units
 MIN_POS_INTEGRAL_FRAC = 0.8       # fraction
 
@@ -178,12 +178,6 @@ def estimate_log_Eic_smooth_derivative(dmsp_fh, eic_window_size=11,  # 11
 
     en_inds = np.log10(dmsp_fh['ch_energy']).searchsorted(Eic_smooth)
     en_inds = [min(i, 18) for i in en_inds]
-    flux_at_Eic = dmsp_fh['ion_d_ener'][en_inds, np.arange(Eic.size)]
-    #flux_mask = (flux_at_Eic > MIN_FLUX_AT_EIC)
-    
-    #for i, cur_is_above in enumerate(flux_mask):
-    #    if not cur_is_above:
-    #        Eic_smooth[i] = np.nan
     
     # Find the smoothed derivative of the smoothed log10(Eic) function. For sake
     # of simplicity, the derivative is estimated with a forward difference.
@@ -202,8 +196,8 @@ def estimate_log_Eic_smooth_derivative(dmsp_fh, eic_window_size=11,  # 11
     return dEicdt_smooth, Eic_smooth
 
 
-def walk_and_integrate(dmsp_fh, omniweb_fh, dEicdt_smooth, Eic_smooth, interval_length, 
-                       return_integrand=False):
+def walk_and_integrate(dmsp_fh, omniweb_fh, dEicdt_smooth, Eic_smooth, interval_length,
+                       reverse_effect=False, return_integrand=False):
     """Walk through windows in the file and test for matching intervals with
     integration of the metric function.
     
@@ -213,6 +207,8 @@ def walk_and_integrate(dmsp_fh, omniweb_fh, dEicdt_smooth, Eic_smooth, interval_
       dEicdt_smooth: smoothed derivative corresponding to times found in dmsp_fh['t']
       Eic_smooth: smoothed Eic cooresponding to times found in dmsp_fh['t']
       interval_length: length of interval
+      reverse_effect: Search for effects in the opposite direction with a magnetic
+        field set to the opposite of the coded threshold.
       return_integrand: return array of integrand values
     """
     # Make interval length into timedelta
@@ -230,9 +226,11 @@ def walk_and_integrate(dmsp_fh, omniweb_fh, dEicdt_smooth, Eic_smooth, interval_
         Bz_test_time = start_time + timedelta(seconds=INTERVAL_LENGTH/2)
         Bz = omniweb_fh['Bz'][omniweb_fh['t'].searchsorted(Bz_test_time)]
 
-        if Bz > MAX_BZ:
+        if (not reverse_effect) and Bz > -MAX_BZ_STRENGTH:
             continue
-        
+        elif reverse_effect and Bz < MAX_BZ_STRENGTH:
+            continue
+
         # Determine end time of interval. If less than `interval_length` from
         # the end of the file, the interval may be less than `interval_length`.
         end_time_idx = dmsp_fh['t'].searchsorted(start_time + interval_length)
@@ -242,7 +240,7 @@ def walk_and_integrate(dmsp_fh, omniweb_fh, dEicdt_smooth, Eic_smooth, interval_
 
         end_time = dmsp_fh['t'][end_time_idx - 1]
 
-        # Only check the interval if in the magnetic latitude range
+        # Only check the interval if the magnetic latitude range
         # |mlat| > 60 deg.
         mlat = dmsp_fh['mlat'][start_time_idx:end_time_idx]
 
@@ -252,6 +250,9 @@ def walk_and_integrate(dmsp_fh, omniweb_fh, dEicdt_smooth, Eic_smooth, interval_
         # Setup integrand for integration. This contains multiple
         # multiplicative terms to control different aspects of the value.
         mlat_direction = -np.sign(np.diff(np.abs(mlat)))
+
+        if reverse_effect:
+            mlat_direction *= -1
         
         with np.errstate(divide='ignore'):
             density_log = np.log10(dmsp_fh['density'][start_time_idx:end_time_idx] + .01)

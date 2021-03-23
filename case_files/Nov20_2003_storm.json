@@ -28,5 +28,6 @@
     ],
     "OMNIWEB_FILE": "data/Nov20_2003_storm/omni_hro_1min_20031101_v01.cdf",
     "PLOT_OUTPUT": "plots/Nov20_2003_storm",
-    "EVENT_OUTPUT": "data/Nov20_2003_storm.csv"
+    "EVENT_OUTPUT": "data/Nov20_2003_storm.csv",
+    "REVERSE_EFFECT": false
 }
