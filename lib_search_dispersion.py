@@ -26,6 +26,7 @@ MAX_BZ_STRENGTH = 3.0             # nT, must be >=0 (sign will be assigned)
 MIN_FLUX_AT_EIC = 10**6.0         # spectrogram units
 MIN_POS_INTEGRAL_FRAC = 0.8       # fraction
 
+OMNIWEB_FILL_VALUE = 9999         # Bz fill value for msising omniweb data
 
 
 def main():
@@ -226,7 +227,10 @@ def walk_and_integrate(dmsp_fh, omniweb_fh, dEicdt_smooth, Eic_smooth, interval_
         Bz_test_time = start_time + timedelta(seconds=INTERVAL_LENGTH/2)
         Bz = omniweb_fh['Bz'][omniweb_fh['t'].searchsorted(Bz_test_time)]
 
-        if (not reverse_effect) and Bz > -MAX_BZ_STRENGTH:
+        
+        if Bz > OMNIWEB_FILL_VALUE:
+            continue
+        elif (not reverse_effect) and Bz > -MAX_BZ_STRENGTH:
             continue
         elif reverse_effect and Bz < MAX_BZ_STRENGTH:
             continue
