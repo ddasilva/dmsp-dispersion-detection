@@ -24,7 +24,6 @@ def main():
 
     # Get DMSP files
     dmsp_glob = 'data/' + storm_name + '/Satellite_*/**/*.cdf'
-
     dmsp_files = []
     dmsp_files.extend(glob.glob(dmsp_glob, recursive=True))
 
@@ -41,8 +40,8 @@ def main():
         'PLOT_OUTPUT': plot_output,
         'EVENT_OUTPUT': event_output,
         'REVERSE_EFFECT': reverse_effect,
-        
     }
+
     case_filename = 'case_files/' + storm_name + '.json'
     fh = open(case_filename, 'w')
     json.dump(case_file, fh, indent=4)
