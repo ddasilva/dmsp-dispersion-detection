@@ -12,19 +12,21 @@ from termcolor import cprint
 
 def main():
     # Edit here
-    storm_name = 'Nov20_2003_storm'
-    omniweb_file = 'data/' + storm_name + '/omni_hro_1min_20031101_v01.cdf'
+    storm_name = 'Long_Term_Trend'
     plot_output = 'plots/' + storm_name
     event_output = 'data/' + storm_name + '.csv'
     reverse_effect = False
     
-    days = list(range(18, 24))
-    dmsp_glob = 'data/'+ storm_name + '/**/*200311%02d*.hdf5'
+    # Get OMNIweb files
+    omniweb_glob = 'data/' + storm_name + '/omniweb/**/*.cdf'
+    omniweb_files = []
+    omniweb_files.extend(glob.glob(omniweb_glob, recursive=True))
 
     # Get DMSP files
+    dmsp_glob = 'data/' + storm_name + '/Satellite_*/**/*.cdf'
+
     dmsp_files = []
-    for day in days:
-        dmsp_files.extend(glob.glob(dmsp_glob%day, recursive=True))
+    dmsp_files.extend(glob.glob(dmsp_glob, recursive=True))
 
     dmsp_files.sort()
     
@@ -35,7 +37,7 @@ def main():
     case_file = {
         'STORM_NAME': storm_name,
         'DMSP_FILES': dmsp_files,
-        'OMNIWEB_FILE': omniweb_file,
+        'OMNIWEB_FILES': omniweb_files,
         'PLOT_OUTPUT': plot_output,
         'EVENT_OUTPUT': event_output,
         'REVERSE_EFFECT': reverse_effect,

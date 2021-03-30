@@ -26,7 +26,7 @@
         "data/Nov20_2003_storm/Satellite_F16/dms_20031122_16e.001.hdf5",
         "data/Nov20_2003_storm/Satellite_F16/dms_20031123_16e.001.hdf5"
     ],
-    "OMNIWEB_FILE": "data/Nov20_2003_storm/omni_hro_1min_20031101_v01.cdf",
+    "OMNIWEB_FILES": ["data/Nov20_2003_storm/omni_hro_1min_20031101_v01.cdf"],
     "PLOT_OUTPUT": "plots/Nov20_2003_storm",
     "EVENT_OUTPUT": "data/Nov20_2003_storm.csv",
     "REVERSE_EFFECT": false

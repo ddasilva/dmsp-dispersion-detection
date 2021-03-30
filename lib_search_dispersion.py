@@ -3,17 +3,14 @@
 by the dispersion event detection algorithm developed by da
 Silva in 2020-2021.
 """
-import argparse
 from datetime import datetime, timedelta
 import h5py
 from intervaltree import IntervalTree
 import numpy as np
-import os
 import pandas as pd
 import progressbar
 import pytz
 from spacepy import pycdf
-import sys
 
 
 INTERVAL_LENGTH = 60              # seconds
@@ -27,82 +24,107 @@ MIN_FLUX_AT_EIC = 10**6.0         # spectrogram units
 MIN_POS_INTEGRAL_FRAC = 0.8       # fraction
 
 OMNIWEB_FILL_VALUE = 9999         # Bz fill value for msising omniweb data
-
-
-def main():
-    """Main function of the program."""
-    # Parse command line arguments
-    parser = argparse.ArgumentParser()
-    parser.add_argument('dmsp_file')
-    parser.add_argument('omniweb_file')
-    args = parser.parse_args()
-
-    # Check files exists
-    if not os.path.exists(args.dmsp_file):
-        print(f'File {args.dmsp_file} does not exist', file=sys.stderr)
-        sys.exit(1)
-
-    if not os.path.exists(args.omniweb_file):
-        print(f'File {args.omniweb_file} does not exist', file=sys.stderr)
-        sys.exit(1)
-    
-    # Calculate  smoothed dEic/dt in log-space
-    dmsp_fh, omniweb_fh = read_files(args.dmsp_file, args.omniweb_file, args)
-
-    dEicdt_smooth, Eic_smooth = estimate_log_Eic_smooth_derivative(dmsp_fh)
-
-    df_match = walk_and_integrate(
-        dmsp_fh, omniweb_fh, dEicdt_smooth, Eic_smooth, INTERVAL_LENGTH,
-    )
-
-    # Output intervals to terminal
-    print(df_match.to_string(index=False))
     
 
-def read_files(dmsp_filename, omniweb_file):
-    """Read DMSP hdf file and read variables into a dictionary.
-    
+def read_omniweb_files(omniweb_files, silent=False):
+    """Read OMNIWeb files into a single dictionary.
+
     Args
-      filename: string path to hdf file
+      filenames: string path to cdf files
     Returns
       dictionary mapping parameters to file
     """
-    # Read DMSP Data
-    # ------------------------------------------------------------------------------------
-    # Open file
-    hdf = h5py.File(dmsp_filename, 'r')
-
-    # Populate file handle dictionary 
-    dsmp_fh = {}    
-    dsmp_fh['t'] = np.array(
-        [datetime(1970, 1, 1, tzinfo=pytz.utc) + timedelta(seconds=i)
-         for i in hdf['Data']['Array Layout']['timestamps'][:]]
-    )
-    dsmp_fh['ch_energy'] = hdf['Data']['Array Layout']['ch_energy'][:]
-    dsmp_fh['mlat'] = hdf['Data']['Array Layout']['1D Parameters']['mlat'][:]
-    dsmp_fh['mlt'] = hdf['Data']['Array Layout']['1D Parameters']['mlt'][:]
-    dsmp_fh['ion_d_flux'] = hdf['Data']['Array Layout']['2D Parameters']['ion_d_flux'][:]
-    dsmp_fh['ion_d_ener'] = hdf['Data']['Array Layout']['2D Parameters']['ion_d_ener'][:]
-    dsmp_fh['density'] = 4 * np.pi * np.trapz(dsmp_fh['ion_d_flux'].T, dsmp_fh['ch_energy'], axis=1)
-    dsmp_fh['peak_flux'] = np.max(dsmp_fh['ion_d_ener'], axis=0)
-
-    # Close file
-    hdf.close()
-    
     # Read OMNIWeb Data
     # ------------------------------------------------------------------------------------
-    omniweb_cdf = pycdf.CDF(omniweb_file)
+    t_items = []
+    Bx_items = []
+    By_items = []
+    Bz_items = []
+    
+    for omniweb_file in sorted(omniweb_files):
+        # Open file
+        if not silent:
+            print(f'Loading {omniweb_file}')
+        omniweb_cdf = pycdf.CDF(omniweb_file)
 
+        # Read the data
+        t_items.append(np.array([time.replace(tzinfo=pytz.utc)
+                           for time in omniweb_cdf['Epoch'][:]]))
+
+        Bx_items.append(omniweb_cdf['BX_GSE'][:])
+        By_items.append(omniweb_cdf['BY_GSM'][:])
+        Bz_items.append(omniweb_cdf['BZ_GSM'][:])
+
+        # Close file
+        omniweb_cdf.close()
+
+    # Merge arrays list of items
     omniweb_fh = {}
-    omniweb_fh['t'] = np.array([
-        time.replace(tzinfo=pytz.utc)
-        for time in omniweb_cdf['Epoch'][:]
-    ])
-    omniweb_fh['Bz'] = omniweb_cdf['BZ_GSM'][:]
+    omniweb_fh['t'] = np.concatenate(t_items)
+    omniweb_fh['Bx'] = np.concatenate(Bx_items)
+    omniweb_fh['By'] = np.concatenate(By_items)
+    omniweb_fh['Bz'] = np.concatenate(Bz_items)
 
-    omniweb_cdf.close()
+    return omniweb_fh
 
-    return dsmp_fh, omniweb_fh
+
+def read_dmsp_file(dmsp_filename):
+    """Read DMSP hdf or cdf file and load variables into a dictionary.
+    
+    Args
+      filename: string path to hdf or cdf file
+    Returns
+      dictionary mapping parameters to file
+    """
+    # Read DMSP Data in HDF5 Format
+    # ------------------------------------------------------------------------------------
+    if dmsp_filename.endswith(('.hdf5', '.hdf', '.h5')):
+        # Open file
+        hdf = h5py.File(dmsp_filename, 'r')
+        
+        # Populate file handle dictionary 
+        dmsp_fh = {}    
+        dmsp_fh['t'] = np.array(
+            [datetime(1970, 1, 1, tzinfo=pytz.utc) + timedelta(seconds=i)
+             for i in hdf['Data']['Array Layout']['timestamps'][:]]
+        )
+        dmsp_fh['ch_energy'] = hdf['Data']['Array Layout']['ch_energy'][:]
+        dmsp_fh['mlat'] = hdf['Data']['Array Layout']['1D Parameters']['mlat'][:]
+        dmsp_fh['ion_d_ener'] = hdf['Data']['Array Layout']['2D Parameters']['ion_d_ener'][:]
+        
+        # Close file
+        hdf.close()
+        
+    # Read DMSP Data in CDF Format
+    # ------------------------------------------------------------------------------------
+    elif dmsp_filename.endswith('cdf'):
+
+        # Open file
+        cdf = pycdf.CDF(dmsp_filename)
+ 
+        dmsp_fh = {}    
+        dmsp_fh['t'] = np.array([t.replace(tzinfo=pytz.utc) for t in cdf['Epoch'][:]])
+        dmsp_fh['ch_energy'] = cdf['CHANNEL_ENERGIES'][:][::-1]
+        dmsp_fh['mlat'] = cdf['SC_AACGM_LAT'][:]
+        dmsp_fh['ion_d_ener'] = cdf['ION_DIFF_ENERGY_FLUX'][:].T
+
+        # Close file
+        cdf.close()
+        
+    # Crash for any other format
+    # ------------------------------------------------------------------------------------
+    else:
+        raise RuntimeError(f'Invalid file format for {dmsp_filename}')
+        
+    # Compute (simple) derived variables
+    # ------------------------------------------------------------------------------------
+    dmsp_fh['density'] = 4 * np.pi * np.trapz(
+        dmsp_fh['ion_d_ener'].T / dmsp_fh['ch_energy'],
+        dmsp_fh['ch_energy'], axis=1
+    )
+    dmsp_fh['peak_flux'] = np.max(dmsp_fh['ion_d_ener'], axis=0)
+
+    return dmsp_fh
 
 
 def estimate_Eic(dmsp_fh, i, j, frac=.1):    
@@ -224,9 +246,13 @@ def walk_and_integrate(dmsp_fh, omniweb_fh, dEicdt_smooth, Eic_smooth, interval_
     for start_time_idx, start_time in bar(list(enumerate(dmsp_fh['t']))):
         # First, check that the minutely Bz measurement from OMNIWeb associated
         # with the midpoint of this interval is less than the threshold.
-        Bz_test_time = start_time + timedelta(seconds=INTERVAL_LENGTH/2)
-        Bz = omniweb_fh['Bz'][omniweb_fh['t'].searchsorted(Bz_test_time)]
-
+        B_test_time = start_time + timedelta(seconds=INTERVAL_LENGTH/2)
+        B_i = omniweb_fh['t'].searchsorted(B_test_time)
+        if B_i == omniweb_fh['Bz'].size:
+            continue
+        Bx = omniweb_fh['Bx'][B_i]
+        By = omniweb_fh['By'][B_i]
+        Bz = omniweb_fh['Bz'][B_i]
         
         if Bz > OMNIWEB_FILL_VALUE:
             continue
@@ -320,6 +346,8 @@ def walk_and_integrate(dmsp_fh, omniweb_fh, dEicdt_smooth, Eic_smooth, interval_
                 'integrand_min': integrand_min,
                 'integrand_mean': integrand_mean,
                 'integrand_max': integrand_max,
+                'Bx': Bx,
+                'By': By,
                 'Bz': Bz,
             }
         
@@ -344,7 +372,9 @@ def walk_and_integrate(dmsp_fh, omniweb_fh, dEicdt_smooth, Eic_smooth, interval_
     for interval in sorted(matching_intervals):
         df_match_rows.append([
             interval.begin, interval.end,
-            max(interval.data['Bz']),
+            np.mean(list(interval.data['Bx'])),
+            np.mean(list(interval.data['By'])),
+            np.mean(list(interval.data['Bz'])),
             min(interval.data['integral']),
             np.mean(list(interval.data['integral'])),
             max(interval.data['integral']),
@@ -355,7 +385,7 @@ def walk_and_integrate(dmsp_fh, omniweb_fh, dEicdt_smooth, Eic_smooth, interval_
 
     df_match = pd.DataFrame(df_match_rows, columns=[
         'start_time', 'end_time',
-        'Bz_mean',
+        'Bx_mean', 'By_mean', 'Bz_mean',
         'integral_min', 'integral_mean', 'integral_max',
         'integrand_min', 'integrand_mean', 'integrand_max',
     ])
@@ -365,6 +395,3 @@ def walk_and_integrate(dmsp_fh, omniweb_fh, dEicdt_smooth, Eic_smooth, interval_
     else:
         return df_match
 
-
-if __name__ == '__main__':
-    main()

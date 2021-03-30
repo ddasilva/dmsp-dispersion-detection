@@ -26,7 +26,7 @@
         "data/Dec20_2015_storm/Satellite_F19/dms_20151222_19e.001.hdf5",
         "data/Dec20_2015_storm/Satellite_F19/dms_20151223_19e.001.hdf5"
     ],
-    "OMNIWEB_FILE": "data/Dec20_2015_storm/omni_hro_1min_20151201_v01.cdf",
+    "OMNIWEB_FILES": ["data/Dec20_2015_storm/omni_hro_1min_20151201_v01.cdf"],
     "PLOT_OUTPUT": "plots/Dec20_2015_storm",
     "EVENT_OUTPUT": "data/Dec20_2015_storm.csv",
     "REVERSE_EFFECT": false
