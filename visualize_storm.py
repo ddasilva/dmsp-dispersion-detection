@@ -93,34 +93,16 @@ def search_events(dmsp_file, omniweb_fh, outfolder=None, no_plots=False,
     
     # Do plotting --------------------------------------------------
     for _, row_match in df_match.iterrows():
-        i = dmsp_fh['t'].searchsorted(row_match.start_time)
-        j = dmsp_fh['t'].searchsorted(row_match.end_time)
+        orig_i = dmsp_fh['t'].searchsorted(row_match.start_time)
+        orig_j = dmsp_fh['t'].searchsorted(row_match.end_time)
 
-        delta_index = int(0.50 * (j - i))  # make plot 25% wider on each end
-        i = max(i - delta_index, 0)
-        j = min(j + delta_index, dmsp_fh['t'].size - 1)
+        delta_index = int(0.50 * (orig_j - orig_i))  # make plot 50% wider
+        i = max(orig_i - delta_index, 0)
+        j = min(orig_j + delta_index, dmsp_fh['t'].size - 1)
         
-        fig, axes = plt.subplots(2, 1, figsize=(18, 6), sharex=True)
+        fig, axes = plt.subplots(3, 1, figsize=(18, 9), sharex=True)
 
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", MatplotlibDeprecationWarning)
-            im = axes[0].pcolor(
-                dmsp_fh['t'][i:j],
-                np.log10(dmsp_fh['ch_energy']),
-                dmsp_fh['ion_d_ener'][:, i:j], 
-                norm=LogNorm(vmin=1e3, vmax=1e8), cmap='jet',
-            )
-        plt.colorbar(im, ax=axes[0]).set_label('Log Energy Flux')
-        plt.colorbar(im, ax=axes[1]).set_label('')
-
-        axes[0].plot(dmsp_fh['t'][i:j], Eic[i:j], 'b*-')
-        axes[0].axhline(
-            np.log10(lib_search_dispersion.MAX_ENERGY_ANALYZED),
-            color='black', linestyle='dashed'
-        )
-        axes[0].invert_yaxis()
-        axes[0].set_ylabel('Log Energy [eV] - Ions')
-        
+        # Plot title
         time_length = row_match.end_time - row_match.start_time
         Bx, By, Bz = (row_match["Bx_mean"], row_match["By_mean"], row_match["Bz_mean"])
         title = (
@@ -131,12 +113,57 @@ def search_events(dmsp_file, omniweb_fh, outfolder=None, no_plots=False,
             "$\\vec{B}$" + f' = ({Bx:.2f}, {By:.2f}, {Bz:.2f}) nT'
         )
         axes[0].set_title(title)
-                            
-        axes[1].fill_between(dmsp_fh['t'][i:j], 0, integrand[i:j])
-        axes[1].axhline(0, color='black', linestyle='dashed')
-        axes[1].set_ylim([-.25, .25])
-        axes[1].set_ylabel('D(t) [eV/s]')
         
+        # Ion spectrogram
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", MatplotlibDeprecationWarning)
+            im = axes[0].pcolor(
+                dmsp_fh['t'][i:j],
+                np.log10(dmsp_fh['ch_energy']),
+                dmsp_fh['ion_d_ener'][:, i:j], 
+                norm=LogNorm(vmin=1e3, vmax=1e8), cmap='jet'
+            )
+        plt.colorbar(im, ax=axes[0]).set_label('Log Energy Flux')
+
+        axes[0].plot(dmsp_fh['t'][i:j], Eic[i:j], 'b*-')
+        axes[0].axhline(
+            np.log10(lib_search_dispersion.MAX_ENERGY_ANALYZED),
+            color='black', linestyle='dashed'
+        )
+        axes[0].invert_yaxis()
+        axes[0].set_ylabel('Ions\nLog Energy [eV]')
+
+        # Electron Spectrogram
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", MatplotlibDeprecationWarning)
+            im = axes[1].pcolor(
+                dmsp_fh['t'][i:j],
+                np.log10(dmsp_fh['ch_energy']),
+                dmsp_fh['el_d_ener'][:, i:j], 
+                norm=LogNorm(vmin=1e5, vmax=1e10), cmap='jet'
+            )
+        plt.colorbar(im, ax=axes[1]).set_label('Log Energy Flux')
+        axes[1].set_ylabel('Electrons\nLog Energy [eV]')
+        
+        # Scoring function
+        score_range = [-.25, .25]
+        
+        axes[2].fill_between(dmsp_fh['t'][i:j], 0, integrand[i:j])
+        axes[2].axhline(0, color='black', linestyle='dashed')
+        axes[2].set_ylim(score_range)
+        axes[2].set_ylabel('D(t) [eV/s]')
+        axes[2].fill_between(
+            [dmsp_fh['t'][orig_i], dmsp_fh['t'][orig_j]],
+            *score_range,
+            color='gray',
+            alpha=0.35
+        )
+        plt.colorbar(im, ax=axes[2]).set_label('')
+        # Plot spacings
+        plt.subplots_adjust(hspace=.05)
+        plt.tight_layout()
+        
+        # Save image
         if not no_plots:
             out_name = outfolder + '/'
             out_name += f'{os.path.basename(dmsp_file)}_'

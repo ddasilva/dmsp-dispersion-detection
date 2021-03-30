@@ -90,6 +90,7 @@ def read_dmsp_file(dmsp_filename):
         )
         dmsp_fh['ch_energy'] = hdf['Data']['Array Layout']['ch_energy'][:]
         dmsp_fh['mlat'] = hdf['Data']['Array Layout']['1D Parameters']['mlat'][:]
+        dmsp_fh['el_d_ener'] = hdf['Data']['Array Layout']['2D Parameters']['el_d_ener'][:]
         dmsp_fh['ion_d_ener'] = hdf['Data']['Array Layout']['2D Parameters']['ion_d_ener'][:]
         
         # Close file
@@ -106,6 +107,7 @@ def read_dmsp_file(dmsp_filename):
         dmsp_fh['t'] = np.array([t.replace(tzinfo=pytz.utc) for t in cdf['Epoch'][:]])
         dmsp_fh['ch_energy'] = cdf['CHANNEL_ENERGIES'][:][::-1]
         dmsp_fh['mlat'] = cdf['SC_AACGM_LAT'][:]
+        dmsp_fh['el_d_ener'] = cdf['ELE_DIFF_ENERGY_FLUX'][:].T
         dmsp_fh['ion_d_ener'] = cdf['ION_DIFF_ENERGY_FLUX'][:].T
 
         # Close file
