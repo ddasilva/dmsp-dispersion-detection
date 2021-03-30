@@ -85,8 +85,9 @@ def search_events(dmsp_file, omniweb_fh, outfolder=None, no_plots=False,
 
     dEicdt_smooth, Eic = lib_search_dispersion.estimate_log_Eic_smooth_derivative(dmsp_fh)
 
-    df_match, integrand, integral, upper_area_frac = lib_search_dispersion.walk_and_integrate(
-        dmsp_fh, omniweb_fh, dEicdt_smooth, Eic, lib_search_dispersion.INTERVAL_LENGTH,
+    df_match, integrand, _, _ = lib_search_dispersion.walk_and_integrate(
+        dmsp_fh, omniweb_fh, dEicdt_smooth, Eic,
+        lib_search_dispersion.INTERVAL_LENGTH,
         reverse_effect=reverse_effect, return_integrand=True
     )
     
@@ -95,6 +96,10 @@ def search_events(dmsp_file, omniweb_fh, outfolder=None, no_plots=False,
         i = dmsp_fh['t'].searchsorted(row_match.start_time)
         j = dmsp_fh['t'].searchsorted(row_match.end_time)
 
+        delta_index = int(0.50 * (j - i))  # make plot 25% wider on each end
+        i = max(i - delta_index, 0)
+        j = min(j + delta_index, dmsp_fh['t'].size - 1)
+        
         fig, axes = plt.subplots(2, 1, figsize=(18, 6), sharex=True)
 
         with warnings.catch_warnings():
