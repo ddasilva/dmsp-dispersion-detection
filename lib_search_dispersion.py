@@ -1,7 +1,6 @@
 #!/usr/bin/env python
-"""Searches DMSP dataset for dispersion events, as defined
-by the dispersion event detection algorithm developed by da
-Silva in 2020-2021.
+"""Searches DMSP dataset for dispersion events, as defined by the dispersion
+event detection algorithm developed by da Silva in 2020-2021.
 """
 from datetime import datetime, timedelta
 import h5py
