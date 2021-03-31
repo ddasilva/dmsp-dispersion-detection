@@ -130,7 +130,6 @@ def search_events(dmsp_file, omniweb_fh, outfolder=None, no_plots=False,
             np.log10(lib_search_dispersion.MAX_ENERGY_ANALYZED),
             color='black', linestyle='dashed'
         )
-        axes[0].invert_yaxis()
         axes[0].set_ylabel('Ions\nLog Energy [eV]')
 
         # Electron Spectrogram
