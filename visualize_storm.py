@@ -39,7 +39,7 @@ def main():
     # ------------------------------------------------------------------------    
     df_matches = []
     
-    for i, dmsp_file in enumerate(case_file['DMSP_FILES']):
+    for i, dmsp_file in enumerate(sorted(case_file['DMSP_FILES'])):
         cprint(f'Processing {i+1}/{len(case_file["DMSP_FILES"])} :: {dmsp_file}', 'green')
         
         df_match = search_events(
