@@ -15,17 +15,15 @@ from spacepy import pycdf
 INTERVAL_LENGTH = 60              # seconds
 INTEGRAL_THRESHOLD = 0.9
 
-MIN_ENERGY_EL_PDENS = 10**1.5     # Electron partial density lower energy, eV
-MAX_ENERGY_EL_PDENS = 10**3.5     # Electron partial density upper energy, eV
-MIN_ION_DENS = 10**7.25           # cm^-3
-MIN_EL_PDENS = 10**5              # cm^-3
+MIN_ION_AVG_FLUX = 1e4            # units of diff en flux 
+MIN_EL_AVG_FLUX = 1e6             # units of diff en flux 
 MIN_MLAT = 55                     # degrees
 MIN_ENERGY_ANALYZED = 50          # eV
 MAX_ENERGY_ANALYZED = 10**3.5     # eV
 MIN_BZ_STRENGTH = 3.0             # nT, must be >=0 (sign will be assigned)
 MIN_FLUX_AT_EIC = 10**6.0         # spectrogram units
 MIN_POS_INTEGRAL_FRAC = 0.8       # fraction
-OMNIWEB_FILL_VALUE = 9999         # Bz fill value for msising omniweb data
+OMNIWEB_FILL_VALUE = 9999         # fill value for msising omniweb data
     
 
 def read_omniweb_files(omniweb_files, silent=False):
@@ -122,18 +120,15 @@ def read_dmsp_file(dmsp_filename):
         
     # Compute (simple) derived variables
     # ------------------------------------------------------------------------------------
-    # Ion Density
-    dmsp_fh['ion_dens'] = 4 * np.pi * np.trapz(
-        dmsp_fh['ion_d_ener'].T / dmsp_fh['ch_energy'],
-        dmsp_fh['ch_energy'], axis=1
-    )
+    # Ion and Electron Average Flux
+    ch_i = dmsp_fh['ch_energy'].searchsorted(MIN_ENERGY_ANALYZED)
+    ch_j = dmsp_fh['ch_energy'].searchsorted(MAX_ENERGY_ANALYZED)    
     
-    # Electron partial density
-    ch_i = dmsp_fh['ch_energy'].searchsorted(MIN_ENERGY_EL_PDENS)
-    ch_j = dmsp_fh['ch_energy'].searchsorted(MAX_ENERGY_EL_PDENS)    
-    dmsp_fh['el_pdens'] = 4 * np.pi * np.trapz(
-        dmsp_fh['el_d_ener'][ch_i:ch_j].T / dmsp_fh['ch_energy'][ch_i:ch_j],
-        dmsp_fh['ch_energy'][ch_i:ch_j], axis=1
+    dmsp_fh['ion_avg_flux'] = np.mean(
+        dmsp_fh['ion_d_ener'][ch_i:ch_j, :], axis=0
+    )
+    dmsp_fh['el_avg_flux'] = np.mean(
+        dmsp_fh['el_d_ener'][:ch_j, :], axis=0
     )
     
     return dmsp_fh
@@ -291,14 +286,12 @@ def walk_and_integrate(dmsp_fh, omniweb_fh, dEicdt_smooth, Eic_smooth, interval_
 
         if reverse_effect:
             mlat_direction *= -1
-        
-        with np.errstate(divide='ignore'):
-            ion_dens_log = np.log10(dmsp_fh['ion_dens'][start_time_idx:end_time_idx] + .01)
-            el_pdens_log = np.log10(dmsp_fh['el_pdens'][start_time_idx:end_time_idx] + .01)
-        
-        ion_dens_mask = (ion_dens_log > np.log10(MIN_ION_DENS)).astype(int)
-        el_pdens_mask = (el_pdens_log > np.log10(MIN_EL_PDENS)).astype(int)        
-        
+                
+        ion_flux_mask = (dmsp_fh['ion_avg_flux'][start_time_idx:end_time_idx]
+                         > MIN_ION_AVG_FLUX).astype(int)
+        el_flux_mask = (dmsp_fh['el_avg_flux'][start_time_idx:end_time_idx]
+                        > MIN_EL_AVG_FLUX).astype(int)        
+
         en_inds = np.log10(dmsp_fh['ch_energy']).searchsorted(Eic_smooth[start_time_idx:end_time_idx])
         en_inds = [min(i, 18) for i in en_inds]
         flux_at_Eic = dmsp_fh['ion_d_ener'][en_inds, np.arange(start_time_idx, end_time_idx)]
@@ -311,8 +304,8 @@ def walk_and_integrate(dmsp_fh, omniweb_fh, dEicdt_smooth, Eic_smooth, interval_
         
         integrand = (
             mlat_direction *
-            ion_dens_mask[:-1] *
-            el_pdens_mask[:-1] *
+            ion_flux_mask[:-1] *
+            el_flux_mask[:-1] *
             flux_at_Eic_mask[:-1] *
             dEicdt_smooth[start_time_idx:end_time_idx-1]
         )
