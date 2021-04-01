@@ -17,8 +17,9 @@ INTEGRAL_THRESHOLD = 0.9
 
 MIN_DENSITY = 10**7.25            # cm^-3
 MIN_MLAT = 55                     # degrees
+MIN_ENERGY_ANALYZED = 50          # eV
 MAX_ENERGY_ANALYZED = 10**3.5     # eV
-MAX_BZ_STRENGTH = 3.0             # nT, must be >=0 (sign will be assigned)
+MIN_BZ_STRENGTH = 3.0             # nT, must be >=0 (sign will be assigned)
 MIN_FLUX_AT_EIC = 10**6.0         # spectrogram units
 MIN_POS_INTEGRAL_FRAC = 0.8       # fraction
 
@@ -144,12 +145,13 @@ def estimate_Eic(dmsp_fh, i, j, frac=.1):
     Returns
       Eic: floating point numpy array
     """
-    k = dmsp_fh['ch_energy'].searchsorted(MAX_ENERGY_ANALYZED)
-    flux_max = dmsp_fh['ion_d_ener'][:k, i:j].max(axis=0)
-    flux_max_ind = dmsp_fh['ion_d_ener'][:k, i:j].argmax(axis=0) # over time
+    ch_bot = dmsp_fh['ch_energy'].searchsorted(MIN_ENERGY_ANALYZED)
+    ch_top = dmsp_fh['ch_energy'].searchsorted(MAX_ENERGY_ANALYZED)
+    flux_max = dmsp_fh['ion_d_ener'][ch_bot:ch_top, i:j].max(axis=0)
+    flux_max_ind = dmsp_fh['ion_d_ener'][ch_bot:ch_top, i:j].argmax(axis=0) + ch_bot # over time
 
     # holds channels with flux above frac * max flux
-    threshold_match_mask = (dmsp_fh['ion_d_ener'][:k, i:j] > frac * flux_max)
+    threshold_match_mask = (dmsp_fh['ion_d_ener'][:ch_top, i:j] > frac * flux_max)
     fill_mask = np.zeros(dmsp_fh['t'][i:j].shape, dtype=bool)
     
     for jj, kk in enumerate(flux_max_ind):
@@ -160,8 +162,7 @@ def estimate_Eic(dmsp_fh, i, j, frac=.1):
             fill_mask[jj] = True
 
     # select last true value under max flux energy
-    n_channels = k
-    ind = n_channels - 1 - threshold_match_mask[::-1, :].argmax(axis=0)
+    ind = ch_top - 1 - threshold_match_mask[::-1, :].argmax(axis=0)
 
     # if no points > frac * max flux under max flux energy, then just use
     # max flux energy
@@ -199,9 +200,6 @@ def estimate_log_Eic_smooth_derivative(dmsp_fh, eic_window_size=11,  # 11
     # log-space.
     Eic = np.log10(estimate_Eic(dmsp_fh, i=0, j=dmsp_fh['t'].size))
     Eic_smooth = find_moving_average(Eic, eic_window_size)
-
-    en_inds = np.log10(dmsp_fh['ch_energy']).searchsorted(Eic_smooth)
-    en_inds = [min(i, 18) for i in en_inds]
     
     # Find the smoothed derivative of the smoothed log10(Eic) function. For sake
     # of simplicity, the derivative is estimated with a forward difference.
@@ -213,10 +211,8 @@ def estimate_log_Eic_smooth_derivative(dmsp_fh, eic_window_size=11,  # 11
     dt.append(dt[-1])                         # copy last value to retain shape)
     
     dEicdt_smooth = find_moving_average(dEic/dt, eic_deriv_window_size)
-
     dEicdt_smooth[np.isnan(dEicdt_smooth)] = 0
-    
-    
+        
     return dEicdt_smooth, Eic_smooth
 
 
@@ -257,9 +253,9 @@ def walk_and_integrate(dmsp_fh, omniweb_fh, dEicdt_smooth, Eic_smooth, interval_
         
         if Bz > OMNIWEB_FILL_VALUE:
             continue
-        elif (not reverse_effect) and Bz > -MAX_BZ_STRENGTH:
+        elif (not reverse_effect) and Bz > -MIN_BZ_STRENGTH:
             continue
-        elif reverse_effect and Bz < MAX_BZ_STRENGTH:
+        elif reverse_effect and Bz < MIN_BZ_STRENGTH:
             continue
 
         # Determine end time of interval. If less than `interval_length` from
