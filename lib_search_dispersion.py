@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 """Searches DMSP dataset for dispersion events, as defined by the dispersion
 event detection algorithm developed by da Silva in 2020-2021.
 """
@@ -10,6 +9,8 @@ import pandas as pd
 import progressbar
 import pytz
 from spacepy import pycdf
+
+from lib_util import find_moving_average
 
 
 INTERVAL_LENGTH = 60              # seconds
@@ -24,13 +25,13 @@ MIN_BZ_STRENGTH = 3.0             # nT, must be >=0 (sign will be assigned)
 MIN_FLUX_AT_EIC = 10**6.0         # spectrogram units
 MIN_POS_INTEGRAL_FRAC = 0.8       # fraction
 OMNIWEB_FILL_VALUE = 9999         # fill value for msising omniweb data
-    
+
 
 def read_omniweb_files(omniweb_files, silent=False):
     """Read OMNIWeb files into a single dictionary.
 
     Args
-      filenames: string path to cdf files
+      omniweb_files: string path to cdf files
     Returns
       dictionary mapping parameters to file
     """
@@ -68,47 +69,47 @@ def read_omniweb_files(omniweb_files, silent=False):
     return omniweb_fh
 
 
-def read_dmsp_file(dmsp_filename):
-    """Read DMSP hdf or cdf file and load variables into a dictionary.
+def read_dmsp_flux_file(dmsp_flux_filename):
+    """Read DMSP Flux hdf or cdf file and load variables into a dictionary.
     
     Args
-      filename: string path to hdf or cdf file
+      dmsp_flux_filename: string path to hdf or cdf file
     Returns
       dictionary mapping parameters to file
     """
     # Read DMSP Data in HDF5 Format
     # ------------------------------------------------------------------------------------
-    if dmsp_filename.endswith(('.hdf5', '.hdf', '.h5')):
+    if dmsp_flux_filename.endswith(('.hdf5', '.hdf', '.h5')):
         # Open file
-        hdf = h5py.File(dmsp_filename, 'r')
+        hdf = h5py.File(dmsp_flux_filename, 'r')
         
         # Populate file handle dictionary 
-        dmsp_fh = {}    
-        dmsp_fh['t'] = np.array(
+        dmsp_flux_fh = {}    
+        dmsp_flux_fh['t'] = np.array(
             [datetime(1970, 1, 1, tzinfo=pytz.utc) + timedelta(seconds=i)
              for i in hdf['Data']['Array Layout']['timestamps'][:]]
         )
-        dmsp_fh['ch_energy'] = hdf['Data']['Array Layout']['ch_energy'][:]
-        dmsp_fh['mlat'] = hdf['Data']['Array Layout']['1D Parameters']['mlat'][:]
-        dmsp_fh['el_d_ener'] = hdf['Data']['Array Layout']['2D Parameters']['el_d_ener'][:]
-        dmsp_fh['ion_d_ener'] = hdf['Data']['Array Layout']['2D Parameters']['ion_d_ener'][:]
+        dmsp_flux_fh['ch_energy'] = hdf['Data']['Array Layout']['ch_energy'][:]
+        dmsp_flux_fh['mlat'] = hdf['Data']['Array Layout']['1D Parameters']['mlat'][:]
+        dmsp_flux_fh['el_d_ener'] = hdf['Data']['Array Layout']['2D Parameters']['el_d_ener'][:]
+        dmsp_flux_fh['ion_d_ener'] = hdf['Data']['Array Layout']['2D Parameters']['ion_d_ener'][:]
         
         # Close file
         hdf.close()
         
     # Read DMSP Data in CDF Format
     # ------------------------------------------------------------------------------------
-    elif dmsp_filename.endswith('cdf'):
+    elif dmsp_flux_filename.endswith('cdf'):
 
         # Open file
-        cdf = pycdf.CDF(dmsp_filename)
+        cdf = pycdf.CDF(dmsp_flux_filename)
  
-        dmsp_fh = {}    
-        dmsp_fh['t'] = np.array([t.replace(tzinfo=pytz.utc) for t in cdf['Epoch'][:]])
-        dmsp_fh['ch_energy'] = cdf['CHANNEL_ENERGIES'][:][::-1]
-        dmsp_fh['mlat'] = cdf['SC_AACGM_LAT'][:]
-        dmsp_fh['el_d_ener'] = cdf['ELE_DIFF_ENERGY_FLUX'][:].T
-        dmsp_fh['ion_d_ener'] = cdf['ION_DIFF_ENERGY_FLUX'][:].T
+        dmsp_flux_fh = {}    
+        dmsp_flux_fh['t'] = np.array([t.replace(tzinfo=pytz.utc) for t in cdf['Epoch'][:]])
+        dmsp_flux_fh['ch_energy'] = cdf['CHANNEL_ENERGIES'][:][::-1]
+        dmsp_flux_fh['mlat'] = cdf['SC_AACGM_LAT'][:]
+        dmsp_flux_fh['el_d_ener'] = cdf['ELE_DIFF_ENERGY_FLUX'][:].T
+        dmsp_flux_fh['ion_d_ener'] = cdf['ION_DIFF_ENERGY_FLUX'][:].T
 
         # Close file
         cdf.close()
@@ -116,25 +117,25 @@ def read_dmsp_file(dmsp_filename):
     # Crash for any other format
     # ------------------------------------------------------------------------------------
     else:
-        raise RuntimeError(f'Invalid file format for {dmsp_filename}')
+        raise RuntimeError(f'Invalid file format for {dmsp_flux_filename}')
         
     # Compute (simple) derived variables
     # ------------------------------------------------------------------------------------
     # Ion and Electron Average Flux
-    ch_i = dmsp_fh['ch_energy'].searchsorted(MIN_ENERGY_ANALYZED)
-    ch_j = dmsp_fh['ch_energy'].searchsorted(MAX_ENERGY_ANALYZED)    
+    ch_i = dmsp_flux_fh['ch_energy'].searchsorted(MIN_ENERGY_ANALYZED)
+    ch_j = dmsp_flux_fh['ch_energy'].searchsorted(MAX_ENERGY_ANALYZED)    
     
-    dmsp_fh['ion_avg_flux'] = np.mean(
-        dmsp_fh['ion_d_ener'][ch_i:ch_j, :], axis=0
+    dmsp_flux_fh['ion_avg_flux'] = np.mean(
+        dmsp_flux_fh['ion_d_ener'][ch_i:ch_j, :], axis=0
     )
-    dmsp_fh['el_avg_flux'] = np.mean(
-        dmsp_fh['el_d_ener'][:ch_j, :], axis=0
+    dmsp_flux_fh['el_avg_flux'] = np.mean(
+        dmsp_flux_fh['el_d_ener'][:ch_j, :], axis=0
     )
     
-    return dmsp_fh
+    return dmsp_flux_fh
 
 
-def estimate_Eic(dmsp_fh, i, j, frac=.1):    
+def estimate_Eic(dmsp_flux_fh, i, j, frac=.1):    
     """Calculates the Eic parameter-- energy level with 10% of peak flux.
 
     Starting at the energy level of peak flux, works downwards and selects the
@@ -143,21 +144,21 @@ def estimate_Eic(dmsp_fh, i, j, frac=.1):
     See Also: Lockwood 1992, Journal of Geophysical Research
     
     Args
-      dmsp_fh: file handle (as returned by read_files)
+      dmsp_flux_fh: file handle (as returned by read_dmsp_flux_file)
       i: start index to limit search
       j: end index to limit search
       frac: algorithm parameter; fraction of peak flux to use for energy search
     Returns
       Eic: floating point numpy array
     """
-    ch_bot = dmsp_fh['ch_energy'].searchsorted(MIN_ENERGY_ANALYZED)
-    ch_top = dmsp_fh['ch_energy'].searchsorted(MAX_ENERGY_ANALYZED)
-    flux_max = dmsp_fh['ion_d_ener'][ch_bot:ch_top, i:j].max(axis=0)
-    flux_max_ind = dmsp_fh['ion_d_ener'][ch_bot:ch_top, i:j].argmax(axis=0) + ch_bot # over time
+    ch_bot = dmsp_flux_fh['ch_energy'].searchsorted(MIN_ENERGY_ANALYZED)
+    ch_top = dmsp_flux_fh['ch_energy'].searchsorted(MAX_ENERGY_ANALYZED)
+    flux_max = dmsp_flux_fh['ion_d_ener'][ch_bot:ch_top, i:j].max(axis=0)
+    flux_max_ind = dmsp_flux_fh['ion_d_ener'][ch_bot:ch_top, i:j].argmax(axis=0) + ch_bot # over time
 
     # holds channels with flux above frac * max flux
-    threshold_match_mask = (dmsp_fh['ion_d_ener'][:ch_top, i:j] > frac * flux_max)
-    fill_mask = np.zeros(dmsp_fh['t'][i:j].shape, dtype=bool)
+    threshold_match_mask = (dmsp_flux_fh['ion_d_ener'][:ch_top, i:j] > frac * flux_max)
+    fill_mask = np.zeros(dmsp_flux_fh['t'][i:j].shape, dtype=bool)
     
     for jj, kk in enumerate(flux_max_ind):
         threshold_match_mask[kk:, jj] = 0
@@ -171,67 +172,53 @@ def estimate_Eic(dmsp_fh, i, j, frac=.1):
 
     # if no points > frac * max flux under max flux energy, then just use
     # max flux energy
-    Eic = dmsp_fh['ch_energy'][ind].copy()
-    Eic[fill_mask] = dmsp_fh['ch_energy'][flux_max_ind[fill_mask]] 
+    Eic = dmsp_flux_fh['ch_energy'][ind].copy()
+    Eic[fill_mask] = dmsp_flux_fh['ch_energy'][flux_max_ind[fill_mask]] 
 
     return Eic
 
 
-def find_moving_average(a, window_size) :
-    """Smooth array `a` using moving average with window size `n`.
-
-    This code was adapted from an example found on stack overflow.
-
-    Args
-      a: numeric numpy array
-      window_size: integer window size
-    Returns
-      smoothed array using moving average.
-    """
-    return np.convolve(a, np.ones((window_size,))/window_size, mode='same')
-
-
 def estimate_log_Eic_smooth_derivative(
-        dmsp_fh, eic_window_size=11, eic_deriv_window_size=5
+        dmsp_flux_fh, eic_window_size=11, eic_deriv_window_size=5
 ):
     """Calculate the smoothed derivative of the smoothed Log10(Eic) parameter.
     
     Args
-      dmsp_fh: file handle returned by read_files()
+      dmsp_flux_fh: file handle returned by read_files()
     Returns
-      dEicdt_smooth: smoothed derivative corresponding to times found in dmsp_fh['t']
-      Eic_smooth: smoothed Eic cooresponding to times found in dmsp_fh['t']
+      dLogEicdt_smooth: smoothed derivative corresponding to times found in dmsp_flux_fh['t']
+      Eic_smooth: smoothed Eic cooresponding to times found in dmsp_flux_fh['t']
     """
     # Calcualte the Eic parameter. Throughout this function, the Eic is in
     # log-space.
-    Eic = np.log10(estimate_Eic(dmsp_fh, i=0, j=dmsp_fh['t'].size))
+    Eic = np.log10(estimate_Eic(dmsp_flux_fh, i=0, j=dmsp_flux_fh['t'].size))
     Eic_smooth = find_moving_average(Eic, eic_window_size)
     
     # Find the smoothed derivative of the smoothed log10(Eic) function. For sake
     # of simplicity, the derivative is estimated with a forward difference.
-    dEic = Eic_smooth.copy()
-    dEic[:-1] = np.diff(Eic_smooth)
-    dEic[-1] = dEic[-2]                       # copy last value to retain shape
+    dLogEic = Eic_smooth.copy()
+    dLogEic[:-1] = np.diff(Eic_smooth)
+    dLogEic[-1] = dLogEic[-2]                       # copy last value to retain shape
     
-    dt = [delta.total_seconds() for delta in np.diff(dmsp_fh['t'])]
+    dt = [delta.total_seconds() for delta in np.diff(dmsp_flux_fh['t'])]
     dt.append(dt[-1])                         # copy last value to retain shape)
     
-    dEicdt_smooth = find_moving_average(dEic/dt, eic_deriv_window_size)
-    dEicdt_smooth[np.isnan(dEicdt_smooth)] = 0
+    dLogEicdt_smooth = find_moving_average(dLogEic/dt, eic_deriv_window_size)
+    dLogEicdt_smooth[np.isnan(dLogEicdt_smooth)] = 0
         
-    return dEicdt_smooth, Eic_smooth
+    return dLogEicdt_smooth, Eic_smooth
 
 
-def walk_and_integrate(dmsp_fh, omniweb_fh, dEicdt_smooth, Eic_smooth, interval_length,
+def walk_and_integrate(dmsp_flux_fh, omniweb_fh, dLogEicdt_smooth, Eic_smooth, interval_length,
                        reverse_effect=False, return_integrand=False):
     """Walk through windows in the file and test for matching intervals with
     integration of the metric function.
     
     Args
-      dmsp_fh: file handle returned by read_files()
+      dmsp_flux_fh: file handle returned by read_files()
       omniweb_fh: file handle returned by read_files()
-      dEicdt_smooth: smoothed derivative corresponding to times found in dmsp_fh['t']
-      Eic_smooth: smoothed Eic cooresponding to times found in dmsp_fh['t']
+      dLogEicdt_smooth: smoothed derivative corresponding to times found in dmsp_flux_fh['t']
+      Eic_smooth: smoothed Eic cooresponding to times found in dmsp_flux_fh['t']
       interval_length: length of interval
       reverse_effect: Search for effects in the opposite direction with a magnetic
         field set to the opposite of the coded threshold.
@@ -241,12 +228,12 @@ def walk_and_integrate(dmsp_fh, omniweb_fh, dEicdt_smooth, Eic_smooth, interval_
     interval_length = timedelta(seconds=interval_length)
     bar = progressbar.ProgressBar()
     matching_intervals = IntervalTree()
-    integrand_save = np.zeros(dmsp_fh['t'].size)
-    integral_save = np.nan * np.zeros(dmsp_fh['t'].size)
+    integrand_save = np.zeros(dmsp_flux_fh['t'].size)
+    integral_save = np.nan * np.zeros(dmsp_flux_fh['t'].size)
     pos_integral_frac_save = np.nan * integrand_save.copy() 
     
     # Walk through timeseries 
-    for start_time_idx, start_time in bar(list(enumerate(dmsp_fh['t']))):
+    for start_time_idx, start_time in bar(list(enumerate(dmsp_flux_fh['t']))):
         # First, check that the minutely Bz measurement from OMNIWeb associated
         # with the midpoint of this interval is less than the threshold.
         B_test_time = start_time + timedelta(seconds=INTERVAL_LENGTH/2)
@@ -266,16 +253,16 @@ def walk_and_integrate(dmsp_fh, omniweb_fh, dEicdt_smooth, Eic_smooth, interval_
 
         # Determine end time of interval. If less than `interval_length` from
         # the end of the file, the interval may be less than `interval_length`.
-        end_time_idx = dmsp_fh['t'].searchsorted(start_time + interval_length)
+        end_time_idx = dmsp_flux_fh['t'].searchsorted(start_time + interval_length)
 
-        if end_time_idx > dmsp_fh['t'].size:
-            end_time_idx = dmsp_fh['t'].size
+        if end_time_idx > dmsp_flux_fh['t'].size:
+            end_time_idx = dmsp_flux_fh['t'].size
 
-        end_time = dmsp_fh['t'][end_time_idx - 1]
+        end_time = dmsp_flux_fh['t'][end_time_idx - 1]
 
         # Only check the interval if the magnetic latitude range
         # |mlat| > 60 deg.
-        mlat = dmsp_fh['mlat'][start_time_idx:end_time_idx]
+        mlat = dmsp_flux_fh['mlat'][start_time_idx:end_time_idx]
 
         if not np.all(np.abs(mlat) > MIN_MLAT):
             continue
@@ -287,14 +274,14 @@ def walk_and_integrate(dmsp_fh, omniweb_fh, dEicdt_smooth, Eic_smooth, interval_
         if reverse_effect:
             mlat_direction *= -1
                 
-        ion_flux_mask = (dmsp_fh['ion_avg_flux'][start_time_idx:end_time_idx]
+        ion_flux_mask = (dmsp_flux_fh['ion_avg_flux'][start_time_idx:end_time_idx]
                          > MIN_ION_AVG_FLUX).astype(int)
-        el_flux_mask = (dmsp_fh['el_avg_flux'][start_time_idx:end_time_idx]
+        el_flux_mask = (dmsp_flux_fh['el_avg_flux'][start_time_idx:end_time_idx]
                         > MIN_EL_AVG_FLUX).astype(int)        
 
-        en_inds = np.log10(dmsp_fh['ch_energy']).searchsorted(Eic_smooth[start_time_idx:end_time_idx])
+        en_inds = np.log10(dmsp_flux_fh['ch_energy']).searchsorted(Eic_smooth[start_time_idx:end_time_idx])
         en_inds = [min(i, 18) for i in en_inds]
-        flux_at_Eic = dmsp_fh['ion_d_ener'][en_inds, np.arange(start_time_idx, end_time_idx)]
+        flux_at_Eic = dmsp_flux_fh['ion_d_ener'][en_inds, np.arange(start_time_idx, end_time_idx)]
         flux_at_Eic[np.isnan(Eic_smooth[start_time_idx:end_time_idx])] = np.nan
 
         with np.errstate(invalid='ignore'):
@@ -307,10 +294,10 @@ def walk_and_integrate(dmsp_fh, omniweb_fh, dEicdt_smooth, Eic_smooth, interval_
             ion_flux_mask[:-1] *
             el_flux_mask[:-1] *
             flux_at_Eic_mask[:-1] *
-            dEicdt_smooth[start_time_idx:end_time_idx-1]
+            dLogEicdt_smooth[start_time_idx:end_time_idx-1]
         )
 
-        t = dmsp_fh['t'][start_time_idx:end_time_idx]
+        t = dmsp_flux_fh['t'][start_time_idx:end_time_idx]
         dt = [delta.total_seconds() for delta in np.diff(t)]
 
         if integrand.size > 0:
@@ -320,7 +307,7 @@ def walk_and_integrate(dmsp_fh, omniweb_fh, dEicdt_smooth, Eic_smooth, interval_
         
         # Compute integral of the integrand over increments of dt using
         # rectangular integraion
-        t = dmsp_fh['t'][start_time_idx:end_time_idx]
+        t = dmsp_flux_fh['t'][start_time_idx:end_time_idx]
         dt = np.array([delta.total_seconds() for delta in np.diff(t)])
 
         integral = np.sum(integrand * dt)

@@ -17,6 +17,7 @@ import pylab as plt
 from termcolor import cprint
 import warnings
 
+import lib_lockwood1992
 import lib_search_dispersion 
 
 
@@ -24,8 +25,10 @@ def main():
     """Main routine of the program. Run with --help for description of arguments."""
     # Parse command line arguments
     parser = argparse.ArgumentParser()
-    parser.add_argument('-i', metavar='CASE_FILE', required=True, help='Path to case file')
-    parser.add_argument('--no-plot', action='store_true', help='Set to disable plotting')
+    parser.add_argument('-i', metavar='CASE_FILE', required=True,
+                        help='Path to case file')
+    parser.add_argument('--no-plot', action='store_true',
+                        help='Set to disable plotting')
     args = parser.parse_args()
 
     # Load case file ---------------------------------------------------------
@@ -33,17 +36,26 @@ def main():
         case_file = json.load(fh)
 
     # Read OMNIWeb data all at once ------------------------------------------
-    omniweb_fh = lib_search_dispersion.read_omniweb_files(case_file['OMNIWEB_FILES'])
-
+    omniweb_fh = lib_search_dispersion.read_omniweb_files(
+        case_file['OMNIWEB_FILES']
+    )
+    
+    # Read DMSP Magnetometer data all at once --------------------------------
+    dmsp_magn_fh = lib_lockwood1992.read_dmsp_magn_files(
+        case_file['DMSP_MAGN_FILES']
+    )
+    
     # Loop through files and call search_events() function
     # ------------------------------------------------------------------------    
     df_matches = []
     
-    for i, dmsp_file in enumerate(sorted(case_file['DMSP_FILES'])):
-        cprint(f'Processing {i+1}/{len(case_file["DMSP_FILES"])} :: {dmsp_file}', 'green')
+    for i, dmsp_flux_file in enumerate(sorted(case_file['DMSP_FLUX_FILES'])):
+        cprint(f'Processing {i+1}/{len(case_file["DMSP_FLUX_FILES"])} :: '
+               f'{dmsp_flux_file}', 'green')
         
         df_match = search_events(
-            dmsp_file=dmsp_file,
+            dmsp_flux_file=dmsp_flux_file,
+            dmsp_magn_fh=dmsp_magn_fh,
             omniweb_fh=omniweb_fh,
             outfolder=case_file['PLOT_OUTPUT'],
             no_plots=args.no_plot,
@@ -62,54 +74,68 @@ def main():
     df.to_csv(case_file['EVENT_OUTPUT'], index=0)
 
     
-def search_events(dmsp_file, omniweb_fh, outfolder=None, no_plots=False,
-                  reverse_effect=False):
+def search_events(dmsp_flux_file, dmsp_magn_fh, omniweb_fh, outfolder=None,
+                  no_plots=False, reverse_effect=False):
     """Search for events in a DMSP file.
     
     Args
-      dmsp_file: Path to HDF5 DMSP file holding spectrogram data (daily)
+      dmsp_flux_file: Path to HDF5 DMSP file holding spectrogram data (daily)
+      dmsp_magn_fh: Loaded DMSP magnetomer data into a dictionary
       omniweb_fh: Loaded omniweb data in a dictionary
       outfolder: Path to write plots to (assuming no_plots=False)
       no_plots: Set to True to disable writing plots to disk
-      reverse_effect: Search for effects in the opposite direction with a magnetic
-        field set to the opposite of the coded threshold.
+      reverse_effect: Search for effects in the opposite direction with a
+        magnetic field set to the opposite of the coded threshold.
     Returns
       Pandas DataFrame holding events found in the file
     """
     # Do computation --------------------------------------------------
     from spacepy import pycdf
     try:
-        dmsp_fh = lib_search_dispersion.read_dmsp_file(dmsp_file)
+        dmsp_flux_fh = (
+            lib_search_dispersion.read_dmsp_flux_file(dmsp_flux_file)
+        )
     except pycdf.CDFError:
         return
 
-    dEicdt_smooth, Eic = lib_search_dispersion.estimate_log_Eic_smooth_derivative(dmsp_fh)
+    dEicdt_smooth, Eic = (
+        lib_search_dispersion.estimate_log_Eic_smooth_derivative(dmsp_flux_fh)
+    )
 
     df_match, integrand, _, _ = lib_search_dispersion.walk_and_integrate(
-        dmsp_fh, omniweb_fh, dEicdt_smooth, Eic,
+        dmsp_flux_fh, omniweb_fh, dEicdt_smooth, Eic,
         lib_search_dispersion.INTERVAL_LENGTH,
         reverse_effect=reverse_effect, return_integrand=True
     )
     
     # Do plotting --------------------------------------------------
     for _, row_match in df_match.iterrows():
-        orig_i = dmsp_fh['t'].searchsorted(row_match.start_time)
-        orig_j = dmsp_fh['t'].searchsorted(row_match.end_time)
+        orig_i = dmsp_flux_fh['t'].searchsorted(row_match.start_time)
+        orig_j = dmsp_flux_fh['t'].searchsorted(row_match.end_time)
 
         delta_index = int(0.50 * (orig_j - orig_i))  # make plot 50% wider
         i = max(orig_i - delta_index, 0)
-        j = min(orig_j + delta_index, dmsp_fh['t'].size - 1)
+        j = min(orig_j + delta_index, dmsp_flux_fh['t'].size - 1)
         
-        fig, axes = plt.subplots(3, 1, figsize=(18, 9), sharex=True)
+        fig, axes = plt.subplots(4, 1, figsize=(18, 12), sharex=True)
 
         # Plot title
         time_length = row_match.end_time - row_match.start_time
-        Bx, By, Bz = (row_match["Bx_mean"], row_match["By_mean"], row_match["Bz_mean"])
+        Bx, By, Bz = (
+            row_match["Bx_mean"],
+            row_match["By_mean"],
+            row_match["Bz_mean"]
+        )
         title = (
-            f'{row_match.start_time.isoformat()} - {row_match.end_time.isoformat()} ' +
+            f'{row_match.start_time.isoformat()} - ' +
+            f'{row_match.end_time.isoformat()} ' +
+            
             f'({time_length.total_seconds() / 60:.1f} minutes)\n' +
             ('Reverse Effect' if reverse_effect else 'Forward Effect') + ', ' 
-            f'MLAT = ({dmsp_fh["mlat"][i]:.1f} deg to {dmsp_fh["mlat"][j]:.1f} deg), ' +
+
+            f'MLAT = ({dmsp_flux_fh["mlat"][i]:.1f} deg to ' +
+            f'{dmsp_flux_fh["mlat"][j]:.1f} deg), ' +
+
             "$\\vec{B}$" + f' = ({Bx:.2f}, {By:.2f}, {Bz:.2f}) nT'
         )
         axes[0].set_title(title)
@@ -118,14 +144,14 @@ def search_events(dmsp_file, omniweb_fh, outfolder=None, no_plots=False,
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", MatplotlibDeprecationWarning)
             im = axes[0].pcolor(
-                dmsp_fh['t'][i:j],
-                np.log10(dmsp_fh['ch_energy']),
-                dmsp_fh['ion_d_ener'][:, i:j], 
+                dmsp_flux_fh['t'][i:j],
+                np.log10(dmsp_flux_fh['ch_energy']),
+                dmsp_flux_fh['ion_d_ener'][:, i:j], 
                 norm=LogNorm(vmin=1e3, vmax=1e8), cmap='jet'
             )
         plt.colorbar(im, ax=axes[0]).set_label('Log Energy Flux')
 
-        axes[0].plot(dmsp_fh['t'][i:j], Eic[i:j], 'b*-')
+        axes[0].plot(dmsp_flux_fh['t'][i:j], Eic[i:j], 'b*-')
         axes[0].axhline(
             np.log10(lib_search_dispersion.MAX_ENERGY_ANALYZED),
             color='black', linestyle='dashed'
@@ -136,9 +162,9 @@ def search_events(dmsp_file, omniweb_fh, outfolder=None, no_plots=False,
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", MatplotlibDeprecationWarning)
             im = axes[1].pcolor(
-                dmsp_fh['t'][i:j],
-                np.log10(dmsp_fh['ch_energy']),
-                dmsp_fh['el_d_ener'][:, i:j], 
+                dmsp_flux_fh['t'][i:j],
+                np.log10(dmsp_flux_fh['ch_energy']),
+                dmsp_flux_fh['el_d_ener'][:, i:j], 
                 norm=LogNorm(vmin=1e5, vmax=1e10), cmap='jet'
             )
         plt.colorbar(im, ax=axes[1]).set_label('Log Energy Flux')
@@ -147,17 +173,34 @@ def search_events(dmsp_file, omniweb_fh, outfolder=None, no_plots=False,
         # Scoring function
         score_range = [-.25, .25]
         
-        axes[2].fill_between(dmsp_fh['t'][i:j], 0, integrand[i:j])
+        axes[2].fill_between(dmsp_flux_fh['t'][i:j], 0, integrand[i:j])
         axes[2].axhline(0, color='black', linestyle='dashed')
         axes[2].set_ylim(score_range)
-        axes[2].set_ylabel('D(t) [eV/s]')
+        axes[2].set_ylabel('D(t) [Log(eV)/s]')
         axes[2].fill_between(
-            [dmsp_fh['t'][orig_i], dmsp_fh['t'][orig_j]],
-            *score_range,
-            color='gray',
-            alpha=0.35
+            [dmsp_flux_fh['t'][orig_i], dmsp_flux_fh['t'][orig_j]],
+            *score_range, color='gray', alpha=0.35
         )
         plt.colorbar(im, ax=axes[2]).set_label('')
+
+        # Reconnection Rate (Time Series)        
+        d, recon_rate = lib_lockwood1992.estimate_reconn_rate(
+            dmsp_flux_fh, Eic, orig_i, orig_j
+        )
+        
+        for i in range(len(d)):        
+            axes[3].plot(
+                dmsp_flux_fh['t'][orig_i:orig_j], recon_rate[i, :],
+                'o-', label=f'd\' = {d[i]} Re'
+            )
+        
+        axes[3].legend()
+        axes[3].set_ylabel('Reconnection Rate')
+        axes[3].set_ylim([.01, 100])
+        axes[3].set_yscale('log')
+        axes[3].grid(linestyle='dashed', color='gray')
+        plt.colorbar(im, ax=axes[3]).set_label('')
+        
         # Plot spacings
         plt.subplots_adjust(hspace=.05)
         plt.tight_layout()
@@ -165,7 +208,7 @@ def search_events(dmsp_file, omniweb_fh, outfolder=None, no_plots=False,
         # Save image
         if not no_plots:
             out_name = outfolder + '/'
-            out_name += f'{os.path.basename(dmsp_file)}_'
+            out_name += f'{os.path.basename(dmsp_flux_file)}_'
             out_name += f"{row_match.start_time.isoformat()}_"
             out_name += f"{row_match.end_time.isoformat()}.png"
 
@@ -175,7 +218,7 @@ def search_events(dmsp_file, omniweb_fh, outfolder=None, no_plots=False,
             
             cprint('Wrote plot ' + out_name, 'green')
             
-            df_match['file'] = dmsp_file
+            df_match['file'] = dmsp_flux_file
         
     return df_match
 

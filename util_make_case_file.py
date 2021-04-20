@@ -12,43 +12,51 @@ from termcolor import cprint
 
 def main():
     # Edit here
-    storm_name = 'Long_Term_Trend'
-    plot_output = 'plots/' + storm_name
-    event_output = 'data/' + storm_name + '.csv'
+    storm_name = 'Dec20_2015_storm'
+    sat_num = 19
     reverse_effect = False
+
+    plot_output = 'plots/' + storm_name
+    event_output = f'data/{storm_name}_F{sat_num}.csv'
     
     # Get OMNIweb files
-    omniweb_glob = 'data/' + storm_name + '/omniweb/**/*.cdf'
+    omniweb_glob = 'data/' + storm_name + '/**/omni*.cdf'
     omniweb_files = []
     omniweb_files.extend(glob.glob(omniweb_glob, recursive=True))
 
     # Get DMSP files
-    dmsp_glob = 'data/' + storm_name + '/Satellite_*/**/*.cdf'
-    dmsp_files = []
-    dmsp_files.extend(glob.glob(dmsp_glob, recursive=True))
-
-    dmsp_files.sort()
+    dmsp_flux_glob = 'data/' + storm_name + f'/Satellite_F{sat_num}/**/*e.*.hdf5'
+    dmsp_flux_files = []
+    dmsp_flux_files.extend(glob.glob(dmsp_flux_glob, recursive=True))
+    dmsp_flux_files.sort()
     
+    dmsp_magn_glob = 'data/' + storm_name + f'/Satellite_F{sat_num}/**/*s1.*.hdf5'
+    dmsp_magn_files = []
+    dmsp_magn_files.extend(glob.glob(dmsp_magn_glob, recursive=True))
+    dmsp_magn_files.sort()
+
     # Make plot output dir if does not exist
     os.makedirs(plot_output, exist_ok=True)
     
     # Write case fiel
     case_file = {
         'STORM_NAME': storm_name,
-        'DMSP_FILES': dmsp_files,
+        'DMSP_FLUX_FILES': dmsp_flux_files,
+        'DMSP_MAGN_FILES': dmsp_magn_files,
         'OMNIWEB_FILES': omniweb_files,
         'PLOT_OUTPUT': plot_output,
         'EVENT_OUTPUT': event_output,
         'REVERSE_EFFECT': reverse_effect,
     }
 
-    case_filename = 'case_files/' + storm_name + '.json'
+    case_filename = f'case_files/{storm_name}_F{sat_num}.json'
     fh = open(case_filename, 'w')
     json.dump(case_file, fh, indent=4)
     fh.write('\n')
     fh.close()
 
     cprint('Wrote case file to path ' + case_filename, 'green')
+
 
 if __name__ == '__main__':
     main()
