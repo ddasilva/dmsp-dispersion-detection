@@ -49,10 +49,10 @@ def read_dmsp_magn_files(dmsp_magn_files, silent=False):
             datetime(1970, 1, 1, tzinfo=pytz.utc) + timedelta(seconds=i)
             for i in struct_array['ut1_unix']
         ]
-
+        
         Btotal = (
             struct_array['bd']**2 +
-            struct_array['b_for']**2 +
+            struct_array['b_forward']**2 +
             struct_array['b_perp']**2
         )
 

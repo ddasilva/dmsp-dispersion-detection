@@ -1,44 +1,22 @@
 {
     "STORM_NAME": "Dec20_2015_storm",
     "DMSP_FLUX_FILES": [
-        "data/Dec20_2015_storm/Satellite_F16/dms_20151214_16e.001.hdf5",
-        "data/Dec20_2015_storm/Satellite_F16/dms_20151215_16e.001.hdf5",
-        "data/Dec20_2015_storm/Satellite_F16/dms_20151216_16e.001.hdf5",
         "data/Dec20_2015_storm/Satellite_F16/dms_20151217_16e.001.hdf5",
         "data/Dec20_2015_storm/Satellite_F16/dms_20151218_16e.001.hdf5",
         "data/Dec20_2015_storm/Satellite_F16/dms_20151219_16e.001.hdf5",
         "data/Dec20_2015_storm/Satellite_F16/dms_20151220_16e.001.hdf5",
         "data/Dec20_2015_storm/Satellite_F16/dms_20151221_16e.001.hdf5",
         "data/Dec20_2015_storm/Satellite_F16/dms_20151222_16e.001.hdf5",
-        "data/Dec20_2015_storm/Satellite_F16/dms_20151223_16e.001.hdf5",
-        "data/Dec20_2015_storm/Satellite_F16/dms_20151224_16e.001.hdf5",
-        "data/Dec20_2015_storm/Satellite_F16/dms_20151225_16e.001.hdf5",
-        "data/Dec20_2015_storm/Satellite_F16/dms_20151226_16e.001.hdf5",
-        "data/Dec20_2015_storm/Satellite_F16/dms_20151227_16e.001.hdf5",
-        "data/Dec20_2015_storm/Satellite_F16/dms_20151228_16e.001.hdf5",
-        "data/Dec20_2015_storm/Satellite_F16/dms_20151229_16e.001.hdf5",
-        "data/Dec20_2015_storm/Satellite_F16/dms_20151230_16e.001.hdf5",
-        "data/Dec20_2015_storm/Satellite_F16/dms_20151231_16e.001.hdf5"
+        "data/Dec20_2015_storm/Satellite_F16/dms_20151223_16e.001.hdf5"
     ],
     "DMSP_MAGN_FILES": [
-        "data/Dec20_2015_storm/Satellite_F16/dms_20151214_16s1.001.hdf5",
-        "data/Dec20_2015_storm/Satellite_F16/dms_20151215_16s1.001.hdf5",
-        "data/Dec20_2015_storm/Satellite_F16/dms_20151216_16s1.001.hdf5",
         "data/Dec20_2015_storm/Satellite_F16/dms_20151217_16s1.001.hdf5",
         "data/Dec20_2015_storm/Satellite_F16/dms_20151218_16s1.001.hdf5",
         "data/Dec20_2015_storm/Satellite_F16/dms_20151219_16s1.001.hdf5",
         "data/Dec20_2015_storm/Satellite_F16/dms_20151220_16s1.001.hdf5",
         "data/Dec20_2015_storm/Satellite_F16/dms_20151221_16s1.001.hdf5",
         "data/Dec20_2015_storm/Satellite_F16/dms_20151222_16s1.001.hdf5",
-        "data/Dec20_2015_storm/Satellite_F16/dms_20151223_16s1.001.hdf5",
-        "data/Dec20_2015_storm/Satellite_F16/dms_20151224_16s1.001.hdf5",
-        "data/Dec20_2015_storm/Satellite_F16/dms_20151225_16s1.001.hdf5",
-        "data/Dec20_2015_storm/Satellite_F16/dms_20151226_16s1.001.hdf5",
-        "data/Dec20_2015_storm/Satellite_F16/dms_20151227_16s1.001.hdf5",
-        "data/Dec20_2015_storm/Satellite_F16/dms_20151228_16s1.001.hdf5",
-        "data/Dec20_2015_storm/Satellite_F16/dms_20151229_16s1.001.hdf5",
-        "data/Dec20_2015_storm/Satellite_F16/dms_20151230_16s1.001.hdf5",
-        "data/Dec20_2015_storm/Satellite_F16/dms_20151231_16s1.001.hdf5"
+        "data/Dec20_2015_storm/Satellite_F16/dms_20151223_16s1.001.hdf5"
     ],
     "OMNIWEB_FILES": [
         "data/Dec20_2015_storm/omni_hro_1min_20151201_v01.cdf"

@@ -1,0 +1,27 @@
+{
+    "STORM_NAME": "Nov20_2003_storm",
+    "DMSP_FLUX_FILES": [
+        "data/Nov20_2003_storm/Satellite_F13/dms_20031117_13e.001.hdf5",
+        "data/Nov20_2003_storm/Satellite_F13/dms_20031118_13e.001.hdf5",
+        "data/Nov20_2003_storm/Satellite_F13/dms_20031119_13e.001.hdf5",
+        "data/Nov20_2003_storm/Satellite_F13/dms_20031120_13e.001.hdf5",
+        "data/Nov20_2003_storm/Satellite_F13/dms_20031121_13e.001.hdf5",
+        "data/Nov20_2003_storm/Satellite_F13/dms_20031122_13e.001.hdf5",
+        "data/Nov20_2003_storm/Satellite_F13/dms_20031123_13e.001.hdf5"
+    ],
+    "DMSP_MAGN_FILES": [
+        "data/Nov20_2003_storm/Satellite_F13/dms_20031117_13s1.002.hdf5",
+        "data/Nov20_2003_storm/Satellite_F13/dms_20031118_13s1.002.hdf5",
+        "data/Nov20_2003_storm/Satellite_F13/dms_20031119_13s1.002.hdf5",
+        "data/Nov20_2003_storm/Satellite_F13/dms_20031120_13s1.002.hdf5",
+        "data/Nov20_2003_storm/Satellite_F13/dms_20031121_13s1.002.hdf5",
+        "data/Nov20_2003_storm/Satellite_F13/dms_20031122_13s1.002.hdf5",
+        "data/Nov20_2003_storm/Satellite_F13/dms_20031123_13s1.002.hdf5"
+    ],
+    "OMNIWEB_FILES": [
+        "data/Nov20_2003_storm/omni_hro_1min_20031101_v01.cdf"
+    ],
+    "PLOT_OUTPUT": "plots/Nov20_2003_storm",
+    "EVENT_OUTPUT": "data/Nov20_2003_storm_F13.csv",
+    "REVERSE_EFFECT": false
+}

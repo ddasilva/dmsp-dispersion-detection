@@ -209,15 +209,17 @@ def estimate_log_Eic_smooth_derivative(
     return dLogEicdt_smooth, Eic_smooth
 
 
-def walk_and_integrate(dmsp_flux_fh, omniweb_fh, dLogEicdt_smooth, Eic_smooth, interval_length,
-                       reverse_effect=False, return_integrand=False):
+def walk_and_integrate(dmsp_flux_fh, omniweb_fh, dLogEicdt_smooth, Eic_smooth,
+                       interval_length, reverse_effect=False,
+                       return_integrand=False):
     """Walk through windows in the file and test for matching intervals with
     integration of the metric function.
     
     Args
       dmsp_flux_fh: file handle returned by read_files()
       omniweb_fh: file handle returned by read_files()
-      dLogEicdt_smooth: smoothed derivative corresponding to times found in dmsp_flux_fh['t']
+      dLogEicdt_smooth: smoothed derivative corresponding to times found in
+        dmsp_flux_fh['t']
       Eic_smooth: smoothed Eic cooresponding to times found in dmsp_flux_fh['t']
       interval_length: length of interval
       reverse_effect: Search for effects in the opposite direction with a magnetic
