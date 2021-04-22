@@ -153,7 +153,7 @@ def search_events(dmsp_flux_file, dmsp_magn_fh, omniweb_fh, outfolder=None,
 
         axes[0].plot(dmsp_flux_fh['t'][i:j], Eic[i:j], 'b*-')
         axes[0].axhline(
-            np.log10(lib_search_dispersion.MAX_ENERGY_ANALYZED),
+            np.log10(lib_search_dispersion.MAX_EIC_ENERGY),
             color='black', linestyle='dashed'
         )
         axes[0].set_ylabel('Ions\nLog Energy [eV]')

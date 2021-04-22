@@ -4,6 +4,7 @@ event detection algorithm developed by da Silva in 2020-2021.
 from datetime import datetime, timedelta
 import h5py
 from intervaltree import IntervalTree
+from numba import jit
 import numpy as np
 import pandas as pd
 import progressbar
@@ -14,16 +15,22 @@ from lib_util import find_moving_average
 
 
 INTERVAL_LENGTH = 60              # seconds
-INTEGRAL_THRESHOLD = 0.9
-
-MIN_ION_AVG_FLUX = 1e4            # units of diff en flux 
-MIN_EL_AVG_FLUX = 1e6             # units of diff en flux 
-MIN_MLAT = 55                     # degrees
-MIN_ENERGY_ANALYZED = 50          # eV
-MAX_ENERGY_ANALYZED = 10**3.5     # eV
-MIN_BZ_STRENGTH = 3.0             # nT, must be >=0 (sign will be assigned)
-MIN_FLUX_AT_EIC = 10**6.0         # spectrogram units
+INTEGRAL_THRESHOLD = 0.85         # units of Log(eV)
 MIN_POS_INTEGRAL_FRAC = 0.8       # fraction
+
+MIN_AVG_IFLUX_SHEATH = 1e4     # units of diff en flux 
+MIN_AVG_EFLUX_SHEATH = 1e6      # units of diff en flux 
+MIN_PEAK_EFLUX_SHEATH = 10**6.5   # units of diff en flux
+
+MIN_MLAT = 55                     # degrees
+MIN_ION_VALID_ENERGY = 50         # eV; workaround for noise at low energies
+MAX_SHEATH_ENERGY = 10**3.5       # eV
+
+
+MAX_EIC_ENERGY = 10**3.5          # eV
+MIN_BZ_STRENGTH = 3.0             # nT, must be >=0 (sign will be assigned)
+MIN_IFLUX_AT_EIC = 1e6            # units fo diff en flux
+
 OMNIWEB_FILL_VALUE = 9999         # fill value for msising omniweb data
 
 
@@ -122,15 +129,23 @@ def read_dmsp_flux_file(dmsp_flux_filename):
     # Compute (simple) derived variables
     # ------------------------------------------------------------------------------------
     # Ion and Electron Average Flux
-    ch_i = dmsp_flux_fh['ch_energy'].searchsorted(MIN_ENERGY_ANALYZED)
-    ch_j = dmsp_flux_fh['ch_energy'].searchsorted(MAX_ENERGY_ANALYZED)    
+    ch_i = dmsp_flux_fh['ch_energy'].searchsorted(MIN_ION_VALID_ENERGY)
+    ch_j = dmsp_flux_fh['ch_energy'].searchsorted(MAX_SHEATH_ENERGY)
     
-    dmsp_flux_fh['ion_avg_flux'] = np.mean(
+    dmsp_flux_fh['iflux_avg_sheath'] = np.mean(
         dmsp_flux_fh['ion_d_ener'][ch_i:ch_j, :], axis=0
     )
-    dmsp_flux_fh['el_avg_flux'] = np.mean(
+    dmsp_flux_fh['eflux_avg_sheath'] = np.mean(
         dmsp_flux_fh['el_d_ener'][:ch_j, :], axis=0
     )
+    # Ion and Electron Peak Flux in Sheath
+    dmsp_flux_fh['iflux_peak_sheath'] = np.max(
+        dmsp_flux_fh['ion_d_ener'][ch_i:ch_j, :], axis=0
+    )
+    dmsp_flux_fh['eflux_peak_sheath'] = np.max(
+        dmsp_flux_fh['el_d_ener'][:ch_j, :], axis=0
+    )
+
     
     return dmsp_flux_fh
 
@@ -151,13 +166,12 @@ def estimate_Eic(dmsp_flux_fh, i, j, frac=.1):
     Returns
       Eic: floating point numpy array
     """
-    ch_bot = dmsp_flux_fh['ch_energy'].searchsorted(MIN_ENERGY_ANALYZED)
-    ch_top = dmsp_flux_fh['ch_energy'].searchsorted(MAX_ENERGY_ANALYZED)
-    flux_max = dmsp_flux_fh['ion_d_ener'][ch_bot:ch_top, i:j].max(axis=0)
-    flux_max_ind = dmsp_flux_fh['ion_d_ener'][ch_bot:ch_top, i:j].argmax(axis=0) + ch_bot # over time
+    ch_bot = dmsp_flux_fh['ch_energy'].searchsorted(MIN_ION_VALID_ENERGY)
+    flux_max = dmsp_flux_fh['ion_d_ener'][ch_bot:, i:j].max(axis=0)
+    flux_max_ind = dmsp_flux_fh['ion_d_ener'][ch_bot:, i:j].argmax(axis=0) + ch_bot # over time
 
     # holds channels with flux above frac * max flux
-    threshold_match_mask = (dmsp_flux_fh['ion_d_ener'][:ch_top, i:j] > frac * flux_max)
+    threshold_match_mask = (dmsp_flux_fh['ion_d_ener'][:, i:j] > frac * flux_max)
     fill_mask = np.zeros(dmsp_flux_fh['t'][i:j].shape, dtype=bool)
     
     for jj, kk in enumerate(flux_max_ind):
@@ -168,13 +182,14 @@ def estimate_Eic(dmsp_flux_fh, i, j, frac=.1):
             fill_mask[jj] = True
 
     # select last true value under max flux energy
-    ind = ch_top - 1 - threshold_match_mask[::-1, :].argmax(axis=0)
+    ind = len(dmsp_flux_fh['ch_energy']) - 1 - \
+        threshold_match_mask[::-1, :].argmax(axis=0)
 
     # if no points > frac * max flux under max flux energy, then just use
     # max flux energy
     Eic = dmsp_flux_fh['ch_energy'][ind].copy()
-    Eic[fill_mask] = dmsp_flux_fh['ch_energy'][flux_max_ind[fill_mask]] 
-
+    Eic[fill_mask] = dmsp_flux_fh['ch_energy'][flux_max_ind[fill_mask]]     
+    
     return Eic
 
 
@@ -192,7 +207,15 @@ def estimate_log_Eic_smooth_derivative(
     # Calcualte the Eic parameter. Throughout this function, the Eic is in
     # log-space.
     Eic = np.log10(estimate_Eic(dmsp_flux_fh, i=0, j=dmsp_flux_fh['t'].size))
-    Eic_smooth = find_moving_average(Eic, eic_window_size)
+
+    en_inds = np.log10(dmsp_flux_fh['ch_energy']).searchsorted(Eic)
+    en_inds = [min(i, 18) for i in en_inds]
+    flux_at_Eic = np.array(
+        [dmsp_flux_fh['ion_d_ener'][en_ind, j] for (j, en_ind)
+         in enumerate(en_inds)]
+    )
+    mask = (flux_at_Eic > MIN_IFLUX_AT_EIC)
+    Eic_smooth = smooth_Eic(Eic, mask, eic_window_size)
     
     # Find the smoothed derivative of the smoothed log10(Eic) function. For sake
     # of simplicity, the derivative is estimated with a forward difference.
@@ -276,25 +299,34 @@ def walk_and_integrate(dmsp_flux_fh, omniweb_fh, dLogEicdt_smooth, Eic_smooth,
         if reverse_effect:
             mlat_direction *= -1
                 
-        ion_flux_mask = (dmsp_flux_fh['ion_avg_flux'][start_time_idx:end_time_idx]
-                         > MIN_ION_AVG_FLUX).astype(int)
-        el_flux_mask = (dmsp_flux_fh['el_avg_flux'][start_time_idx:end_time_idx]
-                        > MIN_EL_AVG_FLUX).astype(int)        
+        iflux_avg_sheath_mask = (
+            dmsp_flux_fh['iflux_avg_sheath'][start_time_idx:end_time_idx]
+            > MIN_AVG_IFLUX_SHEATH).astype(int)
+        eflux_avg_sheath_mask = (
+            dmsp_flux_fh['eflux_avg_sheath'][start_time_idx:end_time_idx]
+            > MIN_AVG_EFLUX_SHEATH).astype(int)        
+        eflux_peak_sheath_mask = (
+            dmsp_flux_fh['eflux_peak_sheath'][start_time_idx:end_time_idx]
+            > MIN_PEAK_EFLUX_SHEATH).astype(int)
+        Eic_in_range = (
+            Eic_smooth[start_time_idx:end_time_idx]
+            < np.log10(MAX_EIC_ENERGY)).astype(int)
 
         en_inds = np.log10(dmsp_flux_fh['ch_energy']).searchsorted(Eic_smooth[start_time_idx:end_time_idx])
         en_inds = [min(i, 18) for i in en_inds]
         flux_at_Eic = dmsp_flux_fh['ion_d_ener'][en_inds, np.arange(start_time_idx, end_time_idx)]
-        flux_at_Eic[np.isnan(Eic_smooth[start_time_idx:end_time_idx])] = np.nan
-
+        flux_at_Eic[np.isnan(Eic_smooth[start_time_idx:end_time_idx])] = np.nan        
         with np.errstate(invalid='ignore'):
             flux_at_Eic_mask = (
-                np.isfinite(flux_at_Eic) & (flux_at_Eic > MIN_FLUX_AT_EIC)
+                np.isfinite(flux_at_Eic) & (flux_at_Eic > MIN_IFLUX_AT_EIC)
             ).astype(int)
         
         integrand = (
             mlat_direction *
-            ion_flux_mask[:-1] *
-            el_flux_mask[:-1] *
+            iflux_avg_sheath_mask[:-1] *
+            eflux_avg_sheath_mask[:-1] *
+            eflux_peak_sheath_mask[:-1] *
+            Eic_in_range[:-1] *
             flux_at_Eic_mask[:-1] *
             dLogEicdt_smooth[start_time_idx:end_time_idx-1]
         )
@@ -372,4 +404,36 @@ def walk_and_integrate(dmsp_flux_fh, omniweb_fh, dLogEicdt_smooth, Eic_smooth,
         return df_match, integrand_save, integral_save, pos_integral_frac_save
     else:
         return df_match
+
+
+@jit(nopython=True)
+def smooth_Eic(Eic, keep_mask, window_size):
+    """Smooth Eic with a mask of points to include in moving average.
+    
+    Arguments
+      Eic: floating point numpy array
+      keep_mask: points to include in moving average
+      window_size: integer, must be odd
+    Returns
+      Smoothed Eic array
+    """
+    assert window_size % 2 == 1, 'Window size must be odd'
+
+    Eic_smooth = Eic.copy()
+    Eic_smooth[:] = np.nan
+    
+    for i in range(Eic.size):
+        if not keep_mask[i]:
+            Eic_smooth[i] = np.nan
+        else:
+            total = 0.0
+            count = 0
+            for di in range(-window_size//2, window_size//2 + 1):
+                if i + di > 0 and i + di < Eic.size and keep_mask[i + di]:
+                    total += Eic[i + di]
+                    count += 1
+            if count > 0:  # else left as nan
+                Eic_smooth[i] = total / count
+
+    return Eic_smooth
 
