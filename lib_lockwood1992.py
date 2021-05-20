@@ -21,51 +21,8 @@ DMSP_PERIOD = 101.6 * units.min
 # Length of path the particle precipation travels down along the cusp field
 # line. In Lockwood 1992, it is suggested the true length is between 15-30 Re.
 # This is also represented by the the d' parameter.
-PRECIP_TRAVEL_PATHS = np.arange(15, 35, 5)
+PRECIP_TRAVEL_PATHS = np.array([10.0])
 
-
-def read_dmsp_magn_files(dmsp_magn_files, silent=False):
-    """Read DMSP magnetometer files into a single dictionary.
-
-    Args
-      dmsp_magn_files: string path to hdf files
-    Returns
-      dictionary mapping parameters to file
-    """
-    t_items = []
-    Btotal_items = []
-    
-    for dmsp_magn_file in sorted(dmsp_magn_files):
-        # Open file
-        if not silent:
-            print(f'Loading {dmsp_magn_file}')
-
-        dmsp_magn_hdf = h5py.File(dmsp_magn_file, 'r')
-        struct_array = dmsp_magn_hdf['Data']['Table Layout'][:]
-        dmsp_magn_hdf.close()
-        
-        # Read the data and do simple transform step
-        t = [
-            datetime(1970, 1, 1, tzinfo=pytz.utc) + timedelta(seconds=i)
-            for i in struct_array['ut1_unix']
-        ]
-        
-        Btotal = (
-            struct_array['bd']**2 +
-            struct_array['b_forward']**2 +
-            struct_array['b_perp']**2
-        )
-
-        # Append to accumulated lists
-        t_items.append(t)
-        Btotal_items.append(Btotal)
-
-    # Merge arrays list of items
-    omniweb_fh = {}
-    omniweb_fh['t'] = np.concatenate(t_items)
-    omniweb_fh['Btotal'] = np.concatenate(Btotal_items)
-
-    return omniweb_fh
 
 def estimate_reconn_rate(dmsp_flux_fh, Eic_smooth, i=None, j=None):
     """Estimate reconnection rate using in-situ ionospheric measurements and
