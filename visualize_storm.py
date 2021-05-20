@@ -29,6 +29,8 @@ def main():
                         help='Path to case file')
     parser.add_argument('--no-plot', action='store_true',
                         help='Set to disable plotting')
+    parser.add_argument('--simple-plots', action='store_true',
+                        help='Do simple plots, without no algorithm information.')
     args = parser.parse_args()
 
     # Load case file ---------------------------------------------------------
@@ -39,12 +41,7 @@ def main():
     omniweb_fh = lib_search_dispersion.read_omniweb_files(
         case_file['OMNIWEB_FILES']
     )
-    
-    # Read DMSP Magnetometer data all at once --------------------------------
-    dmsp_magn_fh = lib_lockwood1992.read_dmsp_magn_files(
-        case_file['DMSP_MAGN_FILES']
-    )
-    
+        
     # Loop through files and call search_events() function
     # ------------------------------------------------------------------------    
     df_matches = []
@@ -55,11 +52,11 @@ def main():
         
         df_match = search_events(
             dmsp_flux_file=dmsp_flux_file,
-            dmsp_magn_fh=dmsp_magn_fh,
             omniweb_fh=omniweb_fh,
             outfolder=case_file['PLOT_OUTPUT'],
             no_plots=args.no_plot,
             reverse_effect=case_file['REVERSE_EFFECT'],
+            simple_plots=args.simple_plots,
         )
         df_matches.append(df_match)
 
@@ -74,18 +71,18 @@ def main():
     df.to_csv(case_file['EVENT_OUTPUT'], index=0)
 
     
-def search_events(dmsp_flux_file, dmsp_magn_fh, omniweb_fh, outfolder=None,
-                  no_plots=False, reverse_effect=False):
+def search_events(dmsp_flux_file, omniweb_fh, outfolder=None,
+                  no_plots=False, reverse_effect=False, simple_plots=False):
     """Search for events in a DMSP file.
     
     Args
       dmsp_flux_file: Path to HDF5 DMSP file holding spectrogram data (daily)
-      dmsp_magn_fh: Loaded DMSP magnetomer data into a dictionary
       omniweb_fh: Loaded omniweb data in a dictionary
       outfolder: Path to write plots to (assuming no_plots=False)
       no_plots: Set to True to disable writing plots to disk
       reverse_effect: Search for effects in the opposite direction with a
         magnetic field set to the opposite of the coded threshold.
+      simple_plots: Do not write D(t) and reconnection rate in plots
     Returns
       Pandas DataFrame holding events found in the file
     """
@@ -116,8 +113,11 @@ def search_events(dmsp_flux_file, dmsp_magn_fh, omniweb_fh, outfolder=None,
         delta_index = int(0.50 * (orig_j - orig_i))  # make plot 50% wider
         i = max(orig_i - delta_index, 0)
         j = min(orig_j + delta_index, dmsp_flux_fh['t'].size - 1)
-        
-        fig, axes = plt.subplots(4, 1, figsize=(18, 12), sharex=True)
+
+        if simple_plots:
+            fig, axes = plt.subplots(2, 1, figsize=(12, 6), sharex=True)
+        else:
+            fig, axes = plt.subplots(4, 1, figsize=(18, 12), sharex=True)
 
         # Plot title
         time_length = row_match.end_time - row_match.start_time
@@ -126,18 +126,29 @@ def search_events(dmsp_flux_file, dmsp_magn_fh, omniweb_fh, outfolder=None,
             row_match["By_mean"],
             row_match["Bz_mean"]
         )
-        title = (
-            f'{row_match.start_time.isoformat()} - ' +
-            f'{row_match.end_time.isoformat()} ' +
+        if simple_plots:
+            title = (
+                'DMSP Plasma Spectrograms ('
+                f'{row_match.start_time.isoformat()} to ' +
+                f'{row_match.end_time.isoformat()})'
+            )
+        else:
+            title = (
+                f'{row_match.start_time.isoformat()} - ' +
+                f'{row_match.end_time.isoformat()} ' +
+                
+                f'({time_length.total_seconds() / 60:.1f} minutes)\n' +
+                ('Reverse Effect' if reverse_effect else 'Forward Effect') + ', ' 
+                
+                f'MLAT = ({dmsp_flux_fh["mlat"][i]:.1f} deg to ' +
+                f'{dmsp_flux_fh["mlat"][j]:.1f} deg), ' +
+
+                f'MLT = ({dmsp_flux_fh["mlt"][i]:.1f} to ' +
+                f'{dmsp_flux_fh["mlt"][j]:.1f}), ' +
+                
+                "$\\vec{B}$" + f' = ({Bx:.2f}, {By:.2f}, {Bz:.2f}) nT'
+            )
             
-            f'({time_length.total_seconds() / 60:.1f} minutes)\n' +
-            ('Reverse Effect' if reverse_effect else 'Forward Effect') + ', ' 
-
-            f'MLAT = ({dmsp_flux_fh["mlat"][i]:.1f} deg to ' +
-            f'{dmsp_flux_fh["mlat"][j]:.1f} deg), ' +
-
-            "$\\vec{B}$" + f' = ({Bx:.2f}, {By:.2f}, {Bz:.2f}) nT'
-        )
         axes[0].set_title(title)
         
         # Ion spectrogram
@@ -149,15 +160,17 @@ def search_events(dmsp_flux_file, dmsp_magn_fh, omniweb_fh, outfolder=None,
                 dmsp_flux_fh['ion_d_ener'][:, i:j], 
                 norm=LogNorm(vmin=1e3, vmax=1e8), cmap='jet'
             )
-        plt.colorbar(im, ax=axes[0]).set_label('Log Energy Flux')
+        plt.colorbar(im, ax=axes[0]).set_label('Energy Flux')
 
-        axes[0].plot(dmsp_flux_fh['t'][i:j], Eic[i:j], 'b*-')
+        axes[0].plot(dmsp_flux_fh['t'][orig_i:orig_j], Eic[orig_i:orig_j],
+                     'b*-')
         axes[0].axhline(
             np.log10(lib_search_dispersion.MAX_EIC_ENERGY),
             color='black', linestyle='dashed'
         )
         axes[0].set_ylabel('Ions\nLog Energy [eV]')
-
+        adjust_axis_energy_yticks(axes[0])
+        
         # Electron Spectrogram
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", MatplotlibDeprecationWarning)
@@ -167,39 +180,43 @@ def search_events(dmsp_flux_file, dmsp_magn_fh, omniweb_fh, outfolder=None,
                 dmsp_flux_fh['el_d_ener'][:, i:j], 
                 norm=LogNorm(vmin=1e5, vmax=1e10), cmap='jet'
             )
-        plt.colorbar(im, ax=axes[1]).set_label('Log Energy Flux')
+        plt.colorbar(im, ax=axes[1]).set_label('Energy Flux')
         axes[1].set_ylabel('Electrons\nLog Energy [eV]')
+        adjust_axis_energy_yticks(axes[1])
         
         # Scoring function
-        score_range = [-.25, .25]
-        
-        axes[2].fill_between(dmsp_flux_fh['t'][i:j], 0, integrand[i:j])
-        axes[2].axhline(0, color='black', linestyle='dashed')
-        axes[2].set_ylim(score_range)
-        axes[2].set_ylabel('D(t) [Log(eV)/s]')
-        axes[2].fill_between(
-            [dmsp_flux_fh['t'][orig_i], dmsp_flux_fh['t'][orig_j]],
-            *score_range, color='gray', alpha=0.35
-        )
-        plt.colorbar(im, ax=axes[2]).set_label('')
-
-        # Reconnection Rate (Time Series)        
-        d, recon_rate = lib_lockwood1992.estimate_reconn_rate(
-            dmsp_flux_fh, Eic, orig_i, orig_j
-        )
-        
-        for i in range(len(d)):        
-            axes[3].plot(
-                dmsp_flux_fh['t'][orig_i:orig_j], recon_rate[i, :],
-                'o-', label=f'd\' = {d[i]} Re'
+        if not simple_plots:
+            score_range = [-.25, .25]
+            
+            axes[2].fill_between(dmsp_flux_fh['t'][i:j], 0, integrand[i:j])
+            axes[2].axhline(0, color='black', linestyle='dashed')
+            axes[2].set_ylim(score_range)
+            axes[2].set_ylabel('D(t) [Log(eV)/s]')
+            axes[2].fill_between(
+                [dmsp_flux_fh['t'][orig_i], dmsp_flux_fh['t'][orig_j]],
+                *score_range, color='gray', alpha=0.35
             )
-        
-        axes[3].legend()
-        axes[3].set_ylabel('Reconnection Rate')
-        axes[3].set_ylim([.01, 100])
-        axes[3].set_yscale('log')
-        axes[3].grid(linestyle='dashed', color='gray')
-        plt.colorbar(im, ax=axes[3]).set_label('')
+            plt.colorbar(im, ax=axes[2]).set_label('')
+
+            
+        # Reconnection Rate (Time Series)
+        if not simple_plots:
+            d, recon_rate = lib_lockwood1992.estimate_reconn_rate(
+                dmsp_flux_fh, Eic, orig_i, orig_j
+            )
+            
+            for i in range(len(d)):        
+                axes[3].plot(
+                    dmsp_flux_fh['t'][orig_i:orig_j], recon_rate[i, :],
+                    'o-', label=f'd\' = {d[i]} Re'
+                )
+                
+            axes[3].legend()
+            axes[3].set_ylabel('Reconnection Rate (mV/m)')
+            axes[3].set_ylim([.01, 100])
+            axes[3].set_yscale('log')
+            axes[3].grid(linestyle='dashed', color='gray')
+            plt.colorbar(im, ax=axes[3]).set_label('')
         
         # Plot spacings
         plt.subplots_adjust(hspace=.05)
@@ -222,6 +239,27 @@ def search_events(dmsp_flux_file, dmsp_magn_fh, omniweb_fh, outfolder=None,
         
     return df_match
 
+
+def adjust_axis_energy_yticks(ax):
+    """Adjust yticklabels for axes with y-axis being energy.
+    
+    Sets them to terms like eV and keV.
+
+    Args
+      ax: matplotlib axes    
+    """
+    yticks = 10**ax.get_yticks()
+    labels = []
+
+    for ytick in yticks:
+        if ytick < 1000:
+            labels.append('%d eV' % ytick)
+        else:
+            labels.append('%.1f keV' % (ytick/1000))
+
+    ax.set_yticklabels(labels)
+    
+    
 
 if __name__ == '__main__':
     main()
