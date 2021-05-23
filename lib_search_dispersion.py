@@ -14,22 +14,22 @@ from spacepy import pycdf
 from lib_util import find_moving_average
 
 
-INTERVAL_LENGTH = 60              # seconds
-INTEGRAL_THRESHOLD = 0.85         # units of Log(eV)
-MIN_POS_INTEGRAL_FRAC = 0.8       # fraction
+INTERVAL_LENGTH = 30              # seconds
+INTEGRAL_THRESHOLD = 0.8          # units of Log(eV)
+MIN_POS_FRAC = .8                 # fraction
 
-MIN_AVG_IFLUX_SHEATH = 1e4     # units of diff en flux 
-MIN_AVG_EFLUX_SHEATH = 1e6      # units of diff en flux 
+MIN_AVG_IFLUX_SHEATH = 1e4        # units of diff en flux 
+MIN_AVG_EFLUX_SHEATH = 1e6        # units of diff en flux 
 MIN_PEAK_EFLUX_SHEATH = 10**6.5   # units of diff en flux
 
 MIN_MLAT = 55                     # degrees
 MIN_ION_VALID_ENERGY = 50         # eV; workaround for noise at low energies
-MAX_SHEATH_ENERGY = 10**3.5       # eV
+MAX_SHEATH_ENERGY = 3.1e3         # eV
 
 
-MAX_EIC_ENERGY = 10**3.5          # eV
+MAX_EIC_ENERGY = 3.15e3           # eV
 MIN_BZ_STRENGTH = 3.0             # nT, must be >=0 (sign will be assigned)
-MIN_IFLUX_AT_EIC = 1e6            # units fo diff en flux
+MIN_IFLUX_AT_EIC = 10**6          # units of diff en flux
 
 OMNIWEB_FILL_VALUE = 9999         # fill value for msising omniweb data
 
@@ -98,6 +98,7 @@ def read_dmsp_flux_file(dmsp_flux_filename):
         )
         dmsp_flux_fh['ch_energy'] = hdf['Data']['Array Layout']['ch_energy'][:]
         dmsp_flux_fh['mlat'] = hdf['Data']['Array Layout']['1D Parameters']['mlat'][:]
+        dmsp_flux_fh['mlt'] = hdf['Data']['Array Layout']['1D Parameters']['mlt'][:]
         dmsp_flux_fh['el_d_ener'] = hdf['Data']['Array Layout']['2D Parameters']['el_d_ener'][:]
         dmsp_flux_fh['ion_d_ener'] = hdf['Data']['Array Layout']['2D Parameters']['ion_d_ener'][:]
         
@@ -110,11 +111,12 @@ def read_dmsp_flux_file(dmsp_flux_filename):
 
         # Open file
         cdf = pycdf.CDF(dmsp_flux_filename)
- 
+
         dmsp_flux_fh = {}    
         dmsp_flux_fh['t'] = np.array([t.replace(tzinfo=pytz.utc) for t in cdf['Epoch'][:]])
         dmsp_flux_fh['ch_energy'] = cdf['CHANNEL_ENERGIES'][:][::-1]
         dmsp_flux_fh['mlat'] = cdf['SC_AACGM_LAT'][:]
+        dmsp_flux_fh['mlt'] = cdf['SC_AACGM_LTIME'][:]
         dmsp_flux_fh['el_d_ener'] = cdf['ELE_DIFF_ENERGY_FLUX'][:].T
         dmsp_flux_fh['ion_d_ener'] = cdf['ION_DIFF_ENERGY_FLUX'][:].T
 
@@ -215,6 +217,9 @@ def estimate_log_Eic_smooth_derivative(
          in enumerate(en_inds)]
     )
     mask = (flux_at_Eic > MIN_IFLUX_AT_EIC)
+
+    #Eic_smooth = Eic.copy()
+    #Eic_smooth = smooth_Eic(Eic, mask, 1)
     Eic_smooth = smooth_Eic(Eic, mask, eic_window_size)
     
     # Find the smoothed derivative of the smoothed log10(Eic) function. For sake
@@ -225,9 +230,12 @@ def estimate_log_Eic_smooth_derivative(
     
     dt = [delta.total_seconds() for delta in np.diff(dmsp_flux_fh['t'])]
     dt.append(dt[-1])                         # copy last value to retain shape)
+    dt = np.array(dt)
     
-    dLogEicdt_smooth = find_moving_average(dLogEic/dt, eic_deriv_window_size)
-    dLogEicdt_smooth[np.isnan(dLogEicdt_smooth)] = 0
+    dLogEicdt_smooth = dLogEic / dt
+
+    #dLogEicdt_smooth = find_moving_average(dLogEic/dt, eic_deriv_window_size)
+    #dLogEicdt_smooth[np.isnan(dLogEicdt_smooth)] = 0
         
     return dLogEicdt_smooth, Eic_smooth
 
@@ -255,7 +263,6 @@ def walk_and_integrate(dmsp_flux_fh, omniweb_fh, dLogEicdt_smooth, Eic_smooth,
     matching_intervals = IntervalTree()
     integrand_save = np.zeros(dmsp_flux_fh['t'].size)
     integral_save = np.nan * np.zeros(dmsp_flux_fh['t'].size)
-    pos_integral_frac_save = np.nan * integrand_save.copy() 
     
     # Walk through timeseries 
     for start_time_idx, start_time in bar(list(enumerate(dmsp_flux_fh['t']))):
@@ -276,6 +283,17 @@ def walk_and_integrate(dmsp_flux_fh, omniweb_fh, dLogEicdt_smooth, Eic_smooth,
         elif reverse_effect and Bz < MIN_BZ_STRENGTH:
             continue
 
+        # Second, check that the MLT associated with the interval is in the day-
+        # side region.
+        mlt_test_time = start_time + timedelta(seconds=INTERVAL_LENGTH/2)
+        mlt_i = dmsp_flux_fh['t'].searchsorted(mlt_test_time)
+        if mlt_i == dmsp_flux_fh['mlt'].size:
+            continue
+        mlt = dmsp_flux_fh['mlt'][mlt_i]
+
+        if not (6 < mlt < 18):
+            continue
+        
         # Determine end time of interval. If less than `interval_length` from
         # the end of the file, the interval may be less than `interval_length`.
         end_time_idx = dmsp_flux_fh['t'].searchsorted(start_time + interval_length)
@@ -344,22 +362,13 @@ def walk_and_integrate(dmsp_flux_fh, omniweb_fh, dLogEicdt_smooth, Eic_smooth,
         t = dmsp_flux_fh['t'][start_time_idx:end_time_idx]
         dt = np.array([delta.total_seconds() for delta in np.diff(t)])
 
-        integral = np.sum(integrand * dt)
-                
-        upper_integral = np.sum(integrand[integrand > 0] * dt[integrand > 0])
-        abs_integral =  np.sum(np.abs(integrand) * dt)
-        
-        if abs_integral > 0:
-            pos_integral_frac = upper_integral / abs_integral
-        else:
-            pos_integral_frac = 0
-        
-        pos_integral_frac_save[start_time_idx] = pos_integral_frac
+        integral = np.sum(integrand * dt)        
+        pos_frac = integral / np.sum(np.abs(integrand)*dt)
         integral_save[start_time_idx] = integral
                 
         # The test/accept condition on the integral value and the fraction of
         # values above zero.
-        if (integral > INTEGRAL_THRESHOLD and pos_integral_frac > MIN_POS_INTEGRAL_FRAC):
+        if integral > INTEGRAL_THRESHOLD and pos_frac > MIN_POS_FRAC:
             matching_intervals[start_time:end_time] = {
                 'integral': integral,
                 'Bx': Bx,
@@ -401,7 +410,7 @@ def walk_and_integrate(dmsp_flux_fh, omniweb_fh, dLogEicdt_smooth, Eic_smooth,
     ])
 
     if return_integrand:
-        return df_match, integrand_save, integral_save, pos_integral_frac_save
+        return df_match, integrand_save, integral_save, pos_frac
     else:
         return df_match
 
