@@ -6,8 +6,7 @@
         "data/Dec20_2015_storm/Satellite_F17/dms_20151219_17e.001.hdf5",
         "data/Dec20_2015_storm/Satellite_F17/dms_20151220_17e.001.hdf5",
         "data/Dec20_2015_storm/Satellite_F17/dms_20151221_17e.001.hdf5",
-        "data/Dec20_2015_storm/Satellite_F17/dms_20151222_17e.001.hdf5",
-        "data/Dec20_2015_storm/Satellite_F17/dms_20151223_17e.001.hdf5"
+        "data/Dec20_2015_storm/Satellite_F17/dms_20151222_17e.001.hdf5"
     ],
     "DMSP_MAGN_FILES": [
         "data/Dec20_2015_storm/Satellite_F17/dms_20151217_17s1.001.hdf5",
@@ -15,8 +14,7 @@
         "data/Dec20_2015_storm/Satellite_F17/dms_20151219_17s1.001.hdf5",
         "data/Dec20_2015_storm/Satellite_F17/dms_20151220_17s1.001.hdf5",
         "data/Dec20_2015_storm/Satellite_F17/dms_20151221_17s1.001.hdf5",
-        "data/Dec20_2015_storm/Satellite_F17/dms_20151222_17s1.001.hdf5",
-        "data/Dec20_2015_storm/Satellite_F17/dms_20151223_17s1.001.hdf5"
+        "data/Dec20_2015_storm/Satellite_F17/dms_20151222_17s1.001.hdf5"
     ],
     "OMNIWEB_FILES": [
         "data/Dec20_2015_storm/omni_hro_1min_20151201_v01.cdf"

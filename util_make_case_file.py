@@ -12,8 +12,8 @@ from termcolor import cprint
 
 def main():
     # Edit here
-    storm_name = 'Dec20_2015_storm'
-    sat_num = 19
+    storm_name = 'Long_Term_Trend'
+    sat_num = 18
     reverse_effect = False
 
     plot_output = 'plots/' + storm_name
@@ -25,7 +25,7 @@ def main():
     omniweb_files.extend(glob.glob(omniweb_glob, recursive=True))
 
     # Get DMSP files
-    dmsp_flux_glob = 'data/' + storm_name + f'/Satellite_F{sat_num}/**/*e.*.hdf5'
+    dmsp_flux_glob = 'data/' + storm_name + f'/Satellite_F{sat_num}/**/*cdf'
     dmsp_flux_files = []
     dmsp_flux_files.extend(glob.glob(dmsp_flux_glob, recursive=True))
     dmsp_flux_files.sort()

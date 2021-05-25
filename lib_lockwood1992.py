@@ -21,7 +21,7 @@ DMSP_PERIOD = 101.6 * units.min
 # Length of path the particle precipation travels down along the cusp field
 # line. In Lockwood 1992, it is suggested the true length is between 15-30 Re.
 # This is also represented by the the d' parameter.
-PRECIP_TRAVEL_PATHS = np.array([10.0])
+PRECIP_TRAVEL_PATHS = np.array([10., 20., 30.])
 
 
 def estimate_reconn_rate(dmsp_flux_fh, Eic_smooth, i=None, j=None):

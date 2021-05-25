@@ -10,6 +10,7 @@ import argparse
 import json
 from matplotlib import MatplotlibDeprecationWarning
 from matplotlib.colors import LogNorm
+from matplotlib.dates import num2date
 import pandas as pd
 import numpy as np
 import os
@@ -95,12 +96,12 @@ def search_events(dmsp_flux_file, omniweb_fh, outfolder=None,
     except pycdf.CDFError:
         return
 
-    dEicdt_smooth, Eic = (
+    dEicdt_smooth, Eic_smooth, Eic = (
         lib_search_dispersion.estimate_log_Eic_smooth_derivative(dmsp_flux_fh)
     )
 
     df_match, integrand, _, _ = lib_search_dispersion.walk_and_integrate(
-        dmsp_flux_fh, omniweb_fh, dEicdt_smooth, Eic,
+        dmsp_flux_fh, omniweb_fh, dEicdt_smooth, Eic_smooth,
         lib_search_dispersion.INTERVAL_LENGTH,
         reverse_effect=reverse_effect, return_integrand=True
     )
@@ -110,7 +111,7 @@ def search_events(dmsp_flux_file, omniweb_fh, outfolder=None,
         orig_i = dmsp_flux_fh['t'].searchsorted(row_match.start_time)
         orig_j = dmsp_flux_fh['t'].searchsorted(row_match.end_time)
 
-        delta_index = int(0.50 * (orig_j - orig_i))  # make plot 50% wider
+        delta_index = int(1.75 * (orig_j - orig_i))  # make plot wider
         i = max(orig_i - delta_index, 0)
         j = min(orig_j + delta_index, dmsp_flux_fh['t'].size - 1)
 
@@ -162,13 +163,19 @@ def search_events(dmsp_flux_file, omniweb_fh, outfolder=None,
             )
         plt.colorbar(im, ax=axes[0]).set_label('Energy Flux')
 
-        axes[0].plot(dmsp_flux_fh['t'][orig_i:orig_j], Eic[orig_i:orig_j],
-                     'b*-')
-        axes[0].axhline(
-            np.log10(lib_search_dispersion.MAX_EIC_ENERGY),
-            color='black', linestyle='dashed'
-        )
-        axes[0].set_ylabel('Ions\nLog Energy [eV]')
+        tbin_centers = dmsp_flux_fh['t'][orig_i:orig_j]
+        tbin_centers += 0.5 * np.diff(dmsp_flux_fh['t'][orig_i:orig_j+1])
+
+        delta_e = np.log10(dmsp_flux_fh['ch_energy'][-1]) - \
+            np.log10(dmsp_flux_fh['ch_energy'][-2])
+
+        if not simple_plots:
+            axes[0].plot(tbin_centers, Eic[orig_i:orig_j] + 0.5 * delta_e, 'b*-')
+            axes[0].axhline(
+                np.log10(lib_search_dispersion.MAX_EIC_ENERGY),
+                color='black', linestyle='dashed'
+            )
+        axes[0].set_ylabel('Ions Energy [eV]')
         adjust_axis_energy_yticks(axes[0])
         
         # Electron Spectrogram
@@ -181,23 +188,23 @@ def search_events(dmsp_flux_file, omniweb_fh, outfolder=None,
                 norm=LogNorm(vmin=1e5, vmax=1e10), cmap='jet'
             )
         plt.colorbar(im, ax=axes[1]).set_label('Energy Flux')
-        axes[1].set_ylabel('Electrons\nLog Energy [eV]')
+        axes[1].set_ylabel('Electrons Energy [eV]')
         adjust_axis_energy_yticks(axes[1])
         
         # Scoring function
         if not simple_plots:
             score_range = [-.25, .25]
             
-            axes[2].fill_between(dmsp_flux_fh['t'][i:j], 0, integrand[i:j])
-            axes[2].axhline(0, color='black', linestyle='dashed')
-            axes[2].set_ylim(score_range)
+            axes[2].fill_between(dmsp_flux_fh['t'][orig_i:orig_j], 0,
+                                 integrand[orig_i:orig_j])
+            axes[2].axhline(0, color='black', linestyle='dashed')            
             axes[2].set_ylabel('D(t) [Log(eV)/s]')
             axes[2].fill_between(
                 [dmsp_flux_fh['t'][orig_i], dmsp_flux_fh['t'][orig_j]],
                 *score_range, color='gray', alpha=0.35
             )
+            axes[2].set_ylim(score_range)
             plt.colorbar(im, ax=axes[2]).set_label('')
-
             
         # Reconnection Rate (Time Series)
         if not simple_plots:
@@ -217,7 +224,9 @@ def search_events(dmsp_flux_file, omniweb_fh, outfolder=None,
             axes[3].set_yscale('log')
             axes[3].grid(linestyle='dashed', color='gray')
             plt.colorbar(im, ax=axes[3]).set_label('')
-        
+            
+        add_multirow_xticks(axes[-1], dmsp_flux_fh)
+
         # Plot spacings
         plt.subplots_adjust(hspace=.05)
         plt.tight_layout()
@@ -240,6 +249,37 @@ def search_events(dmsp_flux_file, omniweb_fh, outfolder=None,
     return df_match
 
 
+def add_multirow_xticks(ax, dmsp_flux_fh):
+    """Add multirow tickmarks to the bottom axis as is common in the
+    magnetospheres community.
+
+    Args
+      ax: matplotlib axes
+      dmsp_flux_fh: file handle (as returned by read_dmsp_flux_file)
+    """
+    xticks = ax.get_xticks()
+    new_labels = []
+    
+    for time_float in xticks:
+        time = num2date(time_float)
+        i = dmsp_flux_fh['t'].searchsorted(time)
+        mlat = dmsp_flux_fh['mlat'][i]
+        mlt = dmsp_flux_fh['mlt'][i]
+        
+        new_label = '%s\n%.1f\n%.1f' % (
+            time.strftime('%H:%M:%S'), mlat, mlt
+        )
+        new_labels.append(new_label)
+        
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+
+        ax.set_xticklabels(new_labels)
+        ax.text(-0.075, -0.075, 'Time', transform=ax.transAxes)
+        ax.text(-0.075, -0.15, 'MLAT', transform=ax.transAxes)
+        ax.text(-0.075, -0.225, 'MLT', transform=ax.transAxes)
+    
+
 def adjust_axis_energy_yticks(ax):
     """Adjust yticklabels for axes with y-axis being energy.
     
@@ -257,7 +297,11 @@ def adjust_axis_energy_yticks(ax):
         else:
             labels.append('%.1f keV' % (ytick/1000))
 
-    ax.set_yticklabels(labels)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        
+        ax.set_yticklabels(labels)
+
     
     
 

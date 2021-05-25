@@ -11,16 +11,14 @@ import progressbar
 import pytz
 from spacepy import pycdf
 
-from lib_util import find_moving_average
-
 
 INTERVAL_LENGTH = 30              # seconds
 INTEGRAL_THRESHOLD = 0.8          # units of Log(eV)
 MIN_POS_FRAC = .8                 # fraction
 
-MIN_AVG_IFLUX_SHEATH = 1e4        # units of diff en flux 
+MIN_AVG_IFLUX_SHEATH = 10**5      # units of diff en flux 
 MIN_AVG_EFLUX_SHEATH = 1e6        # units of diff en flux 
-MIN_PEAK_EFLUX_SHEATH = 10**6.5   # units of diff en flux
+MIN_PEAK_EFLUX_SHEATH = 10**7.5     # units of diff en flux
 
 MIN_MLAT = 55                     # degrees
 MIN_ION_VALID_ENERGY = 50         # eV; workaround for noise at low energies
@@ -29,7 +27,7 @@ MAX_SHEATH_ENERGY = 3.1e3         # eV
 
 MAX_EIC_ENERGY = 3.15e3           # eV
 MIN_BZ_STRENGTH = 3.0             # nT, must be >=0 (sign will be assigned)
-MIN_IFLUX_AT_EIC = 10**6          # units of diff en flux
+MIN_IFLUX_AT_EIC = 10**5          # units of diff en flux
 
 OMNIWEB_FILL_VALUE = 9999         # fill value for msising omniweb data
 
@@ -166,38 +164,37 @@ def estimate_Eic(dmsp_flux_fh, i, j, frac=.1):
       j: end index to limit search
       frac: algorithm parameter; fraction of peak flux to use for energy search
     Returns
-      Eic: floating point numpy array
+      Eic_eic: floating point numpy array
     """
     ch_bot = dmsp_flux_fh['ch_energy'].searchsorted(MIN_ION_VALID_ENERGY)
     flux_max = dmsp_flux_fh['ion_d_ener'][ch_bot:, i:j].max(axis=0)
     flux_max_ind = dmsp_flux_fh['ion_d_ener'][ch_bot:, i:j].argmax(axis=0) + ch_bot # over time
 
-    # holds channels with flux above frac * max flux
-    threshold_match_mask = (dmsp_flux_fh['ion_d_ener'][:, i:j] > frac * flux_max)
+    # holds channels with flux below frac * max flux
+    threshold_match_mask = (dmsp_flux_fh['ion_d_ener'][:, i:j] < frac * flux_max)
     fill_mask = np.zeros(dmsp_flux_fh['t'][i:j].shape, dtype=bool)
     
     for jj, kk in enumerate(flux_max_ind):
-        threshold_match_mask[kk:, jj] = 0
+        threshold_match_mask[kk:, jj] = False
 
         # if all points under max flux energy under threshold
-        if np.all(threshold_match_mask[:kk, jj] == False):
+        if np.all(threshold_match_mask[:kk, jj]):
             fill_mask[jj] = True
 
     # select last true value under max flux energy
     ind = len(dmsp_flux_fh['ch_energy']) - 1 - \
         threshold_match_mask[::-1, :].argmax(axis=0)
-
-    # if no points > frac * max flux under max flux energy, then just use
-    # max flux energy
-    Eic = dmsp_flux_fh['ch_energy'][ind].copy()
-    Eic[fill_mask] = dmsp_flux_fh['ch_energy'][flux_max_ind[fill_mask]]     
     
-    return Eic
+    # if no points > frac * max flux under max flux energy, then just use
+    # max flux energy    
+    Eic_raw = dmsp_flux_fh['ch_energy'][ind].copy()
+    Eic_raw[fill_mask] = dmsp_flux_fh['ch_energy'][flux_max_ind[fill_mask]]
+    Eic_raw[ind >= 16] = np.nan
+    
+    return Eic_raw
 
 
-def estimate_log_Eic_smooth_derivative(
-        dmsp_flux_fh, eic_window_size=11, eic_deriv_window_size=5
-):
+def estimate_log_Eic_smooth_derivative(dmsp_flux_fh, eic_window_size=11):
     """Calculate the smoothed derivative of the smoothed Log10(Eic) parameter.
     
     Args
@@ -205,27 +202,27 @@ def estimate_log_Eic_smooth_derivative(
     Returns
       dLogEicdt_smooth: smoothed derivative corresponding to times found in dmsp_flux_fh['t']
       Eic_smooth: smoothed Eic cooresponding to times found in dmsp_flux_fh['t']
+      Eic: non-smooth Eic cooresponding to times found in dmsp_flux_fh['t']
     """
     # Calcualte the Eic parameter. Throughout this function, the Eic is in
     # log-space.
-    Eic = np.log10(estimate_Eic(dmsp_flux_fh, i=0, j=dmsp_flux_fh['t'].size))
+    LogEic_raw = np.log10(estimate_Eic(dmsp_flux_fh, i=0, j=dmsp_flux_fh['t'].size))
 
-    en_inds = np.log10(dmsp_flux_fh['ch_energy']).searchsorted(Eic)
+    en_inds = np.log10(dmsp_flux_fh['ch_energy']).searchsorted(LogEic_raw)
     en_inds = [min(i, 18) for i in en_inds]
     flux_at_Eic = np.array(
         [dmsp_flux_fh['ion_d_ener'][en_ind, j] for (j, en_ind)
          in enumerate(en_inds)]
     )
-    mask = (flux_at_Eic > MIN_IFLUX_AT_EIC)
-
-    #Eic_smooth = Eic.copy()
-    #Eic_smooth = smooth_Eic(Eic, mask, 1)
-    Eic_smooth = smooth_Eic(Eic, mask, eic_window_size)
+    mask = np.ones_like(flux_at_Eic, dtype=bool)#(flux_at_Eic > MIN_IFLUX_AT_EIC)
+    
+    LogEic = clean_Eic(LogEic_raw, mask, None)
+    LogEic_smooth = clean_Eic(LogEic_raw, mask, eic_window_size)
     
     # Find the smoothed derivative of the smoothed log10(Eic) function. For sake
     # of simplicity, the derivative is estimated with a forward difference.
-    dLogEic = Eic_smooth.copy()
-    dLogEic[:-1] = np.diff(Eic_smooth)
+    dLogEic = LogEic_smooth.copy()
+    dLogEic[:-1] = np.diff(LogEic_smooth)
     dLogEic[-1] = dLogEic[-2]                       # copy last value to retain shape
     
     dt = [delta.total_seconds() for delta in np.diff(dmsp_flux_fh['t'])]
@@ -233,11 +230,8 @@ def estimate_log_Eic_smooth_derivative(
     dt = np.array(dt)
     
     dLogEicdt_smooth = dLogEic / dt
-
-    #dLogEicdt_smooth = find_moving_average(dLogEic/dt, eic_deriv_window_size)
-    #dLogEicdt_smooth[np.isnan(dLogEicdt_smooth)] = 0
         
-    return dLogEicdt_smooth, Eic_smooth
+    return dLogEicdt_smooth, LogEic_smooth, LogEic
 
 
 def walk_and_integrate(dmsp_flux_fh, omniweb_fh, dLogEicdt_smooth, Eic_smooth,
@@ -416,7 +410,7 @@ def walk_and_integrate(dmsp_flux_fh, omniweb_fh, dLogEicdt_smooth, Eic_smooth,
 
 
 @jit(nopython=True)
-def smooth_Eic(Eic, keep_mask, window_size):
+def clean_Eic(Eic, keep_mask, window_size):
     """Smooth Eic with a mask of points to include in moving average.
     
     Arguments
@@ -425,24 +419,29 @@ def smooth_Eic(Eic, keep_mask, window_size):
       window_size: integer, must be odd
     Returns
       Smoothed Eic array
-    """
-    assert window_size % 2 == 1, 'Window size must be odd'
+    """    
+    assert (window_size is None) or (window_size % 2 == 1),\
+        'Window size must be odd'
 
-    Eic_smooth = Eic.copy()
-    Eic_smooth[:] = np.nan
+    Eic_clean = Eic.copy()
+    Eic_clean[:] = np.nan
     
     for i in range(Eic.size):
         if not keep_mask[i]:
-            Eic_smooth[i] = np.nan
-        else:
+            Eic_clean[i] = np.nan
+        elif (window_size is None) and keep_mask[i]:
+            Eic_clean[i] = Eic[i]
+        elif (window_size is not None):
             total = 0.0
             count = 0
+            
             for di in range(-window_size//2, window_size//2 + 1):
                 if i + di > 0 and i + di < Eic.size and keep_mask[i + di]:
                     total += Eic[i + di]
                     count += 1
+            
             if count > 0:  # else left as nan
-                Eic_smooth[i] = total / count
-
-    return Eic_smooth
+                Eic_clean[i] = total / count
+                
+    return Eic_clean
 
