@@ -189,7 +189,7 @@ def estimate_Eic(dmsp_flux_fh, i, j, frac=.1):
     # max flux energy    
     Eic_raw = dmsp_flux_fh['ch_energy'][ind].copy()
     Eic_raw[fill_mask] = dmsp_flux_fh['ch_energy'][flux_max_ind[fill_mask]]
-    Eic_raw[ind >= 16] = np.nan
+    Eic_raw[ind >= 16] = np.nan  # eic will never be at these energies
     
     return Eic_raw
 

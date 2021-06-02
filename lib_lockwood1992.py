@@ -13,11 +13,6 @@ import pytz
 
 from lib_util import find_moving_average
 
-# DMSP Orbital Parameters, taken from:
-#   https://directory.eoportal.org/web/eoportal/-/dmsp
-DMSP_ALTITUDE = 811 * units.km
-DMSP_PERIOD = 101.6 * units.min
-
 # Length of path the particle precipation travels down along the cusp field
 # line. In Lockwood 1992, it is suggested the true length is between 15-30 Re.
 # This is also represented by the the d' parameter.
@@ -63,12 +58,7 @@ def estimate_reconn_rate(dmsp_flux_fh, Eic_smooth, i=None, j=None):
     Bi = 5e-5 * units.T
 
     # Satellite velocity
-    Vs = (
-        2
-        * math.pi
-        * (constants.R_earth + DMSP_ALTITUDE)
-        / DMSP_PERIOD
-    )
+    Vs = 7.8 * units.km / units.s
 
     # Misc
     alpha = 0
