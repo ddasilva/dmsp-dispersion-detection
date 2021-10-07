@@ -6,27 +6,34 @@ import h5py
 from intervaltree import IntervalTree
 from numba import jit
 import numpy as np
+import os
 import pandas as pd
 import progressbar
 import pytz
 from spacepy import pycdf
 
 
-INTERVAL_LENGTH = 30              # seconds
-INTEGRAL_THRESHOLD = 0.8          # units of Log(eV)
+#INTERVAL_LENGTH = float(os.environ['INTERVAL_LENGTH'])              # seconds
+INTERVAL_LENGTH = 60              # seconds
+INTEGRAL_THRESHOLD = 0.7          # units of Log(eV)
+#INTEGRAL_THRESHOLD = float(os.environ['INTEGRAL_THRESHOLD'])          # units of Log(eV)
 MIN_POS_FRAC = .8                 # fraction
 
 MIN_AVG_IFLUX_SHEATH = 10**5      # units of diff en flux 
+
+#MIN_AVG_EFLUX_SHEATH = 0          # units of diff en flux 
 MIN_AVG_EFLUX_SHEATH = 1e6        # units of diff en flux 
+#MIN_PEAK_EFLUX_SHEATH = 0         # units of diff en flux
 MIN_PEAK_EFLUX_SHEATH = 10**7.5     # units of diff en flux
 
-MIN_MLAT = 55                     # degrees
+MIN_MLAT = 50                     # degrees
 MIN_ION_VALID_ENERGY = 50         # eV; workaround for noise at low energies
 MAX_SHEATH_ENERGY = 3.1e3         # eV
 
 
 MAX_EIC_ENERGY = 3.15e3           # eV
-MIN_BZ_STRENGTH = 3.0             # nT, must be >=0 (sign will be assigned)
+#MIN_BZ_STRENGTH = float(os.environ['BZ_STRENGTH'])             # nT, must be >=0 (sign will be assigned)
+MIN_BZ_STRENGTH =  3.0            # nT, must be >=0 (sign will be assigned)
 MIN_IFLUX_AT_EIC = 10**5          # units of diff en flux
 
 OMNIWEB_FILL_VALUE = 9999         # fill value for msising omniweb data
@@ -274,8 +281,6 @@ def walk_and_integrate(dmsp_flux_fh, omniweb_fh, dLogEicdt_smooth, Eic_smooth,
             continue
         elif (not reverse_effect) and Bz > -MIN_BZ_STRENGTH:
             continue
-        elif reverse_effect and Bz < MIN_BZ_STRENGTH:
-            continue
 
         # Second, check that the MLT associated with the interval is in the day-
         # side region.
@@ -343,6 +348,8 @@ def walk_and_integrate(dmsp_flux_fh, omniweb_fh, dLogEicdt_smooth, Eic_smooth,
             dLogEicdt_smooth[start_time_idx:end_time_idx-1]
         )
 
+        integrand[np.isnan(integrand)] = 0
+
         t = dmsp_flux_fh['t'][start_time_idx:end_time_idx]
         dt = [delta.total_seconds() for delta in np.diff(t)]
 
@@ -356,10 +363,13 @@ def walk_and_integrate(dmsp_flux_fh, omniweb_fh, dLogEicdt_smooth, Eic_smooth,
         t = dmsp_flux_fh['t'][start_time_idx:end_time_idx]
         dt = np.array([delta.total_seconds() for delta in np.diff(t)])
 
-        integral = np.sum(integrand * dt)        
-        pos_frac = integral / np.sum(np.abs(integrand)*dt)
+        integral = np.sum(integrand * dt)
+        total_area = np.sum(np.abs(integrand)*dt)
+
+        pos_frac = integral / total_area if total_area > 0 else 0
+        
         integral_save[start_time_idx] = integral
-                
+        
         # The test/accept condition on the integral value and the fraction of
         # values above zero.
         if integral > INTEGRAL_THRESHOLD and pos_frac > MIN_POS_FRAC:
@@ -404,7 +414,7 @@ def walk_and_integrate(dmsp_flux_fh, omniweb_fh, dLogEicdt_smooth, Eic_smooth,
     ])
 
     if return_integrand:
-        return df_match, integrand_save, integral_save, pos_frac
+        return df_match, integrand_save, integral_save, None
     else:
         return df_match
 
@@ -424,7 +434,6 @@ def clean_Eic(Eic, keep_mask, window_size):
         'Window size must be odd'
 
     Eic_clean = Eic.copy()
-    Eic_clean[:] = np.nan
     
     for i in range(Eic.size):
         if not keep_mask[i]:
