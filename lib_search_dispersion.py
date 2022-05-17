@@ -14,8 +14,8 @@ from spacepy import pycdf
 
 
 #INTERVAL_LENGTH = float(os.environ['INTERVAL_LENGTH'])              # seconds
-INTERVAL_LENGTH = 60              # seconds
-INTEGRAL_THRESHOLD = 0.7          # units of Log(eV)
+INTERVAL_LENGTH = 30              # seconds
+INTEGRAL_THRESHOLD = 0.4          # units of Log(eV)
 #INTEGRAL_THRESHOLD = float(os.environ['INTEGRAL_THRESHOLD'])          # units of Log(eV)
 MIN_POS_FRAC = .8                 # fraction
 
@@ -53,6 +53,7 @@ def read_omniweb_files(omniweb_files, silent=False):
     Bx_items = []
     By_items = []
     Bz_items = []
+    n_items = []
     
     for omniweb_file in sorted(omniweb_files):
         # Open file
@@ -67,7 +68,8 @@ def read_omniweb_files(omniweb_files, silent=False):
         Bx_items.append(omniweb_cdf['BX_GSE'][:])
         By_items.append(omniweb_cdf['BY_GSM'][:])
         Bz_items.append(omniweb_cdf['BZ_GSM'][:])
-
+        n_items.append(omniweb_cdf['proton_density'][:])
+        
         # Close file
         omniweb_cdf.close()
 
@@ -77,7 +79,8 @@ def read_omniweb_files(omniweb_files, silent=False):
     omniweb_fh['Bx'] = np.concatenate(Bx_items)
     omniweb_fh['By'] = np.concatenate(By_items)
     omniweb_fh['Bz'] = np.concatenate(Bz_items)
-
+    omniweb_fh['n'] = np.concatenate(n_items)
+    
     return omniweb_fh
 
 
@@ -242,7 +245,7 @@ def estimate_log_Eic_smooth_derivative(dmsp_flux_fh, eic_window_size=11):
 
 
 def walk_and_integrate(dmsp_flux_fh, omniweb_fh, dLogEicdt_smooth, Eic_smooth,
-                       interval_length, reverse_effect=False,
+                       interval_length, reverse_effect=False, inverse_effect=False,
                        return_integrand=False):
     """Walk through windows in the file and test for matching intervals with
     integration of the metric function.
@@ -279,8 +282,6 @@ def walk_and_integrate(dmsp_flux_fh, omniweb_fh, dLogEicdt_smooth, Eic_smooth,
         
         if Bz > OMNIWEB_FILL_VALUE:
             continue
-        elif (not reverse_effect) and Bz > -MIN_BZ_STRENGTH:
-            continue
 
         # Second, check that the MLT associated with the interval is in the day-
         # side region.
@@ -315,7 +316,9 @@ def walk_and_integrate(dmsp_flux_fh, omniweb_fh, dLogEicdt_smooth, Eic_smooth,
 
         if reverse_effect:
             mlat_direction *= -1
-                
+        elif inverse_effect:
+            mlat_direction *= np.sign(Bz)
+        
         iflux_avg_sheath_mask = (
             dmsp_flux_fh['iflux_avg_sheath'][start_time_idx:end_time_idx]
             > MIN_AVG_IFLUX_SHEATH).astype(int)

@@ -59,6 +59,7 @@ def main():
             outfolder=case_file['PLOT_OUTPUT'],
             no_plots=args.no_plot,
             reverse_effect=case_file['REVERSE_EFFECT'],
+            inverse_effect=case_file['INVERSE_EFFECT'],
             simple_plots=args.simple_plots,
         )
         df_matches.append(df_match)
@@ -75,7 +76,8 @@ def main():
 
     
 def search_events(dmsp_flux_file, omniweb_fh, outfolder=None,
-                  no_plots=False, reverse_effect=False, simple_plots=False):
+                  no_plots=False, reverse_effect=False, inverse_effect=False,
+                  simple_plots=False):
     """Search for events in a DMSP file.
     
     Args
@@ -105,7 +107,8 @@ def search_events(dmsp_flux_file, omniweb_fh, outfolder=None,
     df_match, integrand, _, _ = lib_search_dispersion.walk_and_integrate(
         dmsp_flux_fh, omniweb_fh, dEicdt_smooth, Eic_smooth,
         lib_search_dispersion.INTERVAL_LENGTH,
-        reverse_effect=reverse_effect, return_integrand=True
+        reverse_effect=reverse_effect, inverse_effect=inverse_effect,
+        return_integrand=True
     )
     
     # Do plotting --------------------------------------------------
@@ -114,6 +117,7 @@ def search_events(dmsp_flux_file, omniweb_fh, outfolder=None,
         orig_j = dmsp_flux_fh['t'].searchsorted(row_match.end_time)
 
         delta_index = int(1.2 * (orig_j - orig_i))  # make plot wider
+        delta_index = int(2 * (orig_j - orig_i))  # make plot wider,dd,rd
         i = max(orig_i - delta_index, 0)
         j = min(orig_j + delta_index, dmsp_flux_fh['t'].size - 1)
 
@@ -128,7 +132,7 @@ def search_events(dmsp_flux_file, omniweb_fh, outfolder=None,
             plt.rc('ytick', labelsize=small_size)    # fontsize of the tick labels
             plt.rc('legend', fontsize=small_size)    # legend fontsize
             plt.rc('figure', titlesize=big_size)     # fontsize of the figure title
-            fig, axes = plt.subplots(4, 1, figsize=(18, 12), sharex=True)
+            fig, axes = plt.subplots(3, 1, figsize=(18, 9), sharex=True, dpi=600)
             
         # Plot title
         nonzero = (integrand[orig_i:orig_j] > 0.01).nonzero()[0]
@@ -153,7 +157,9 @@ def search_events(dmsp_flux_file, omniweb_fh, outfolder=None,
         else:            
             title = (
                 f'DMSP {sat} Dispersion Event during '
-                "$B_{IMF}$" + f' = ({Bx:.2f}, {By:.2f}, {Bz:.2f}) nT'
+                "$B_{IMF}$" + f' = ({Bx:.2f}, {By:.2f}, {Bz:.2f}) nT\n'
+                f"{row_match.start_time.isoformat()} - "
+                f"{row_match.end_time.isoformat()}"
             )
             
         axes[0].set_title(title)
@@ -169,9 +175,15 @@ def search_events(dmsp_flux_file, omniweb_fh, outfolder=None,
             )
         plt.colorbar(im, ax=axes[0]).set_label('Energy Flux')
 
-        #tcutoff = datetime(2015, 12, 20, 7, 48, 45, tzinfo=pytz.utc) # fig2.1
-        #tcutoff = datetime(2015, 12, 21, 2, 28, 12, tzinfo=pytz.utc) # fig2.2
-
+        #tcutoff0 = datetime(2015, 12, 20, 7, 48, 23, tzinfo=pytz.utc) # fig2.1
+        #tcutoff1 = datetime(2015, 12, 20, 7, 48, 45, tzinfo=pytz.utc) # fig2.1
+        #tcutoff0 = datetime(2015, 12, 21, 2, 27, 50, tzinfo=pytz.utc) # fig2.2
+        #tcutoff1 = datetime(2015, 12, 21, 2, 28, 12, tzinfo=pytz.utc) # fig2.2
+        #tcutoff0 = datetime(2015, 8, 29, 9, 7, 20, tzinfo=pytz.utc) # dd (double dispersoin)
+        #tcutoff1 = datetime(2015, 8, 29, 9, 7, 31, tzinfo=pytz.utc) # dd
+        #tcutoff0 = datetime(2015, 12, 24, 16, 13, 25, tzinfo=pytz.utc) # rd (reverse dispersion)
+        #tcutoff1 = datetime(2015, 12, 24, 16, 13, 40, tzinfo=pytz.utc) # rd
+        
         if not simple_plots:
             tbin_centers = dmsp_flux_fh['t'][orig_i:orig_j]
             tbin_centers += 0.5 * np.diff(dmsp_flux_fh['t'][orig_i:orig_j+1])
@@ -183,9 +195,15 @@ def search_events(dmsp_flux_file, omniweb_fh, outfolder=None,
             top_e = np.log10(lib_search_dispersion.MAX_SHEATH_ENERGY)
             Eic_filtered[Eic_filtered > top_e] = np.nan
 
-            #Eic_filtered[tbin_centers > tcutoff] = np.nan #fig2.1,fig2.2
-            
-            axes[0].plot(tbin_centers, Eic_filtered, 'b*-')
+            #Eic_filtered[tbin_centers < tcutoff0] = np.nan #fig2.1,fig2.2,dd,rd
+            #Eic_filtered[tbin_centers > tcutoff1] = np.nan #fig2.1,fig2.2,dd,rd
+
+            if np.isnan(Eic_filtered).all():
+                print('here')
+                plt.close()
+                continue
+
+            axes[0].plot(tbin_centers, Eic_filtered, 'b*-') 
             axes[0].axhline(
                 np.log10(lib_search_dispersion.MAX_EIC_ENERGY),
                 color='black', linestyle='dashed'
@@ -210,42 +228,52 @@ def search_events(dmsp_flux_file, omniweb_fh, outfolder=None,
         if not simple_plots:
             score_range = [-.25, .25]
             t = dmsp_flux_fh['t']
-            #integrand[t > tcutoff] = np.nan # fig2.1,fig2.2
+            #integrand[t < tcutoff0] = np.nan # fig2.1,fig2.2,dd,rd
+            #integrand[t > tcutoff1] = np.nan # fig2.1,fig2.2,dd,rd
             
             axes[2].fill_between(t[orig_i:orig_j], 0, integrand[orig_i:orig_j])
             axes[2].axhline(0, color='black', linestyle='dashed')            
             axes[2].set_ylabel('D(t) [Log(eV)/s]')
-            #axes[2].fill_between(
-            #    [dmsp_flux_fh['t'][orig_i], dmsp_flux_fh['t'][orig_j]],
-            #    *score_range, color='gray', alpha=0.35
-            #)
             axes[2].set_ylim(score_range)
             plt.colorbar(im, ax=axes[2]).set_label('')
             
-        # Reconnection Rate (Time Series)
-        if not simple_plots:
-            d, recon_rate = lib_lockwood1992.estimate_reconn_rate(
-                dmsp_flux_fh, Eic, orig_i, orig_j
-            )
-            
-            for cnt in range(len(d)):
-                t = dmsp_flux_fh['t'][orig_i:orig_j]
-                #recon_rate[cnt, :][t > tcutoff] = np.nan # fig2.1,fig.2.2
-                axes[3].plot(t, recon_rate[cnt, :], 'o-', label=f'd\' = {d[cnt]} Re')
+        # # Reconnection Rate (Time Series)
+        # if not simple_plots:
+        #     d, recon_rate_iono, recon_rate_mpause = \
+        #         lib_lockwood1992.estimate_reconn_rate(
+        #             dmsp_flux_fh, Eic, orig_i, orig_j
+        #         )
+                        
+        #     for cnt in range(len(d)):
+        #         t = dmsp_flux_fh['t'][orig_i:orig_j]
+
+        #         recon_rate_iono[cnt, :][t < tcutoff0] = np.nan # fig2.1,fig.2.2
+        #         recon_rate_mpause[cnt, :][t < tcutoff0] = np.nan # fig2.1,fig.2.2
+        #         recon_rate_iono[cnt, :][t > tcutoff1] = np.nan # fig2.1,fig.2.2
+        #         recon_rate_mpause[cnt, :][t > tcutoff1] = np.nan # fig2.1,fig.2.2
+
+        #         print(f'd = {d[cnt]} Re, mean = {np.nanmean(recon_rate_iono[cnt, :])}, max = {np.nanmax(recon_rate_iono[cnt, :])}')
                 
-            axes[3].legend()
-            axes[3].set_ylabel('Reconnection\nRate (mV/m)')
-            axes[3].set_ylim([.01, 100])
-            axes[3].set_yscale('log')
-            axes[3].grid(linestyle='dashed', color='gray')
-            plt.colorbar(im, ax=axes[3]).set_label('')
+        #         axes[3].plot(t, recon_rate_iono[cnt, :], '^-', label=f'Ionosphere (d\' = {d[cnt]} Re)')
+        #         axes[3].plot(t, recon_rate_mpause[cnt, :], '*-', label=f'Magnetopause (d\' = {d[cnt]} Re)')
+                
+        #     axes[3].legend()
+        #     axes[3].set_ylabel('Reconnection\nRate (mV/m)')
+        #     axes[3].set_ylim([.01, 1000])
+        #     axes[3].set_yscale('log')
+        #     axes[3].grid(linestyle='dashed', color='gray')
+        #     plt.colorbar(im, ax=axes[3]).set_label('')
 
         #start_time = datetime(2015, 12, 20, 7, 47, 30, tzinfo=pytz.utc) # fig2.1
         #end_time = datetime(2015, 12, 20, 7, 50, 0, tzinfo=pytz.utc) # fig2.1
         #start_time = datetime(2015, 12, 21, 2, 26, 30, tzinfo=pytz.utc) # fig2.2
         #end_time = datetime(2015, 12, 21, 2, 29, 30, tzinfo=pytz.utc) # fig2.2
-        #axes[-1].set_xlim([start_time, end_time]) # fig2.1,fig2.2
-
+        #start_time = datetime(2015, 8, 29, 9, 6, 5, tzinfo=pytz.utc) # dd
+        #end_time = datetime(2015, 8, 29, 9, 8, 30, tzinfo=pytz.utc) # dd
+        #start_time = datetime(2015, 12, 24, 16, 12, 10, tzinfo=pytz.utc) # rd
+        #end_time = datetime(2015, 12, 24, 16, 14, 45, tzinfo=pytz.utc) # rd        
+        #axes[-1].set_xlim([start_time, end_time]) # fig2.1,fig2.2,dd,rd
+        
         add_multirow_xticks(axes[-1], dmsp_flux_fh, simple_plots)
         
         # Plot spacings

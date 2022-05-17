@@ -12,10 +12,11 @@ from termcolor import cprint
 
 def main():
     # Edit here
-    storm_name = 'Long_Term_Trend'
-    sat_num = 18
+    storm_name = 'LJ2015_Sep_to_Dec'
+    sat_num = 19
     reverse_effect = False
-
+    inverse_effect = True
+    
     plot_output = 'plots/' + storm_name
     event_output = f'data/{storm_name}_F{sat_num}.csv'
     
@@ -25,7 +26,7 @@ def main():
     omniweb_files.extend(glob.glob(omniweb_glob, recursive=True))
 
     # Get DMSP files
-    dmsp_flux_glob = 'data/' + storm_name + f'/Satellite_F{sat_num}/**/*cdf'
+    dmsp_flux_glob = 'data/' + storm_name + f'/Satellite_F{sat_num}/**/*e.*.hdf5'
     dmsp_flux_files = []
     dmsp_flux_files.extend(glob.glob(dmsp_flux_glob, recursive=True))
     dmsp_flux_files.sort()
@@ -47,6 +48,7 @@ def main():
         'PLOT_OUTPUT': plot_output,
         'EVENT_OUTPUT': event_output,
         'REVERSE_EFFECT': reverse_effect,
+        'INVERSE_EFFECT': inverse_effect,
     }
 
     case_filename = f'case_files/{storm_name}_F{sat_num}.json'
