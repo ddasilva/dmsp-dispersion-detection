@@ -14,7 +14,7 @@ from spacepy import pycdf
 
 
 INTERVAL_LENGTH = 30              # seconds
-INTEGRAL_THRESHOLD = 0.4          # units of Log(eV)
+DEFAULT_INTEGRAL_THRESHOLD = 0.4  # Default integral threshold
 MIN_POS_FRAC = .8                 # fraction
 MIN_AVG_IFLUX_SHEATH = 10**5      # units of diff en flux 
 MIN_AVG_EFLUX_SHEATH = 1e6        # units of diff en flux 
@@ -115,7 +115,8 @@ def estimate_log_Eic_smooth_derivative(dmsp_flux_fh, eic_window_size=11):
 
 
 def walk_and_integrate(dmsp_flux_fh, omniweb_fh, dLogEicdt_smooth, Eic_smooth,
-                       interval_length, reverse_effect=False, inverse_effect=False,
+                       interval_length, integral_threshold,
+                       reverse_effect=False, inverse_effect=False,
                        return_integrand=False):
     """Walk through windows in the file and test for matching intervals with
     integration of the metric function.
@@ -245,7 +246,7 @@ def walk_and_integrate(dmsp_flux_fh, omniweb_fh, dLogEicdt_smooth, Eic_smooth,
         
         # The test/accept condition on the integral value and the fraction of
         # values above zero.
-        if integral > INTEGRAL_THRESHOLD and pos_frac > MIN_POS_FRAC:
+        if integral > integral_threshold and pos_frac > MIN_POS_FRAC:
             matching_intervals[start_time:end_time] = {
                 'integral': integral,
                 'Bx': Bx,

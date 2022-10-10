@@ -34,6 +34,8 @@ def main():
                         help='Set to disable plotting')
     parser.add_argument('--simple-plots', action='store_true',
                         help='Do simple plots, without no algorithm information.')
+    parser.add_argument('--threshold', type=float, default=-1)
+    
     args = parser.parse_args()
 
     # Load case file ---------------------------------------------------------
@@ -61,6 +63,7 @@ def main():
             reverse_effect=case_file['REVERSE_EFFECT'],
             inverse_effect=case_file['INVERSE_EFFECT'],
             simple_plots=args.simple_plots,
+            integral_threshold=args.threshold,
         )
         df_matches.append(df_match)
 
@@ -76,8 +79,8 @@ def main():
 
     
 def search_events(dmsp_flux_file, omniweb_fh, plot_out_dir=None,
-                  no_plots=False, reverse_effect=False, inverse_effect=False,
-                  simple_plots=False):
+                  no_plots=False, reverse_effect=False, inverse_effect=False,                  
+                  simple_plots=False, integral_threshold=None):
     """Search for events in a DMSP file.
     
     Args
@@ -88,9 +91,13 @@ def search_events(dmsp_flux_file, omniweb_fh, plot_out_dir=None,
       reverse_effect: Search for effects in the opposite direction with a
         magnetic field set to the opposite of the coded threshold.
       simple_plots: Do not write D(t) and reconnection rate in plots
+      integration: detection threhsold value, set to -1 for default.
     Returns
       Pandas DataFrame holding events found in the file
     """
+    if integral_threshold < -1:
+        integral_threshold = lib_dasilva2022.DEFAULT_INTEGRAL_THRESHOLD
+    
     # Do computation --------------------------------------------------
     try:
         dmsp_flux_fh = lib_util.read_dmsp_flux_file(dmsp_flux_file)
@@ -100,10 +107,10 @@ def search_events(dmsp_flux_file, omniweb_fh, plot_out_dir=None,
     dEicdt_smooth, Eic_smooth, Eic = (
         lib_dasilva2022.estimate_log_Eic_smooth_derivative(dmsp_flux_fh)
     )
-
+    
     df_match, integrand, _, _ = lib_dasilva2022.walk_and_integrate(
         dmsp_flux_fh, omniweb_fh, dEicdt_smooth, Eic_smooth,
-        lib_dasilva2022.INTERVAL_LENGTH,
+        lib_dasilva2022.INTERVAL_LENGTH, integral_threshold,
         reverse_effect=reverse_effect, inverse_effect=inverse_effect,
         return_integrand=True
     )
