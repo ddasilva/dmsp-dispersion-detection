@@ -15,7 +15,7 @@ import pytz
 # Length of path the particle precipation travels down along the cusp field
 # line. In Lockwood 1992, it is suggested the true length is between 15-30 Re.
 # This is also represented by the the d' parameter.
-PRECIP_TRAVEL_PATHS = np.array([10., 20., 30.])
+PRECIP_TRAVEL_PATHS = np.array([10.])
 
 
 def estimate_reconn_rate(dmsp_flux_fh, Eic, i=None, j=None):
@@ -27,7 +27,9 @@ def estimate_reconn_rate(dmsp_flux_fh, Eic, i=None, j=None):
       Eic: Eic cooresponding to times found in dmsp_flux_fh['t'].
         Note: In units of Log10(eV)
     Returns
-      Ey_final: Estimated reconnection rate, in units of mV/m.
+      precip_travel_paths: precipitation travel paths (d' in paper)
+      Ey_iono: reconnection rate at ionosphere (Ey in paper)
+      Ey_mpause: reconnetion rate at magnetopause (Ey' in paper)
     """
     # Calculate required parameters. Interpolate everything to the time axis
     # of Eic.
@@ -54,7 +56,7 @@ def estimate_reconn_rate(dmsp_flux_fh, Eic, i=None, j=None):
     Bmp = 50 * units.nT
 
     # Magnetic field at ionosphere
-    Bi = 5e-5 * units.T
+    Bi = 50e3 * units.nT
 
     # Satellite velocity
     Vs = 7.8 * units.km / units.s
@@ -65,7 +67,8 @@ def estimate_reconn_rate(dmsp_flux_fh, Eic, i=None, j=None):
     
     # Calculate the Reconnection Rate using equations derived in the paper
     # ------------------------------------------------------------------------
-    Ey_all = []
+    Ey_iono = []         # reconnection rate at ionosphere
+    Ey_mpause = []       # reconnection rate at magnetopause
 
     for precip_travel_path in PRECIP_TRAVEL_PATHS:
         d = precip_travel_path * constants.R_earth 
@@ -75,9 +78,18 @@ def estimate_reconn_rate(dmsp_flux_fh, Eic, i=None, j=None):
             (1 + (d/2) * np.sqrt(m/2) * Eic**(-3/2) * np.abs(dEicdt))
         )
         dy = np.sqrt(Bi / Bmp)
-        Ey_final = Ey / dy       
-        Ey_all.append(Ey_final.to(units.mV/units.m))
+        
+        Ey_final = Ey / dy
+        
+        Ey_iono.append(Ey.to(units.mV/units.m))
+        Ey_mpause.append(Ey_final.to(units.mV/units.m))
 
-    Ey_all = np.array(Ey_all)
+    Ey_iono = np.array(Ey_iono)
+    Ey_mpause = np.array(Ey_mpause)
 
-    return PRECIP_TRAVEL_PATHS, Ey_all
+    # Remove points where DeltaEic=0
+    for i in range(PRECIP_TRAVEL_PATHS.size):
+        Ey_iono[i, :-1][np.diff(Eic)==0] = np.nan
+        Ey_mpause[i, :-1][np.diff(Eic)==0] = np.nan
+    
+    return PRECIP_TRAVEL_PATHS, Ey_iono, Ey_mpause
