@@ -21,5 +21,6 @@
     ],
     "PLOT_OUTPUT": "plots/Dec20_2015_storm",
     "EVENT_OUTPUT": "data/Dec20_2015_storm_F16.csv",
-    "REVERSE_EFFECT": false
+    "REVERSE_EFFECT": false,
+    "INVERSE_EFFECT": false
 }
