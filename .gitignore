@@ -1,3 +1,4 @@
+case_files/*.json
 *.png
 data/*
 .ipynb_checkpoints
