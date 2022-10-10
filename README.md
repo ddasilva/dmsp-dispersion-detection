@@ -8,6 +8,9 @@ This repository holds code and notebooks associated with the automated dispersio
 * `run_model.py` - Script to search data and plot discovered events-- you pass it a case file created with `make_case_file.py`.
 * `make_case_file.py` - Generate a case file which holds all the inputs for `run_model.py`. Edit the variables at the top of the code and re-run the script to get it to write a file.
 
+Literture
+* da Silva, D., et al. "Automatic Identification and New Observations of Ion Energy Dispersion Events in the Cusp Ionosphere." Journal of Geophysical Research: Space Physics 127.4 (2022): e2021JA029637. [https://doi.org/10.1029/2021JA029637](https://doi.org/10.1029/2021JA029637)
+
 Requirements
 * [Python 3 with Miniconda/Anaconda](https://docs.conda.io/en/latest/miniconda.html) - programming language, see `environment.yml` for module dependencies.
 * [Wget](https://www.gnu.org/software/wget/) - recent version needed, required for downloading data from web and FTP.
