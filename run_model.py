@@ -369,6 +369,7 @@ def add_multirow_xticks(ax, dmsp_flux_fh, simple_plots):
             ax.text(-0.09, -0.24, 'MLAT', transform=ax.transAxes)
             ax.text(-0.09, -0.36, 'MLT', transform=ax.transAxes)
 
+
 def adjust_axis_energy_yticks(ax):
     """Adjust yticklabels for axes with y-axis being energy.
     
