@@ -1,13 +1,19 @@
 name: dmsp-dispersion
+channels:
+  - conda-forge
 dependencies:
+  # Base python
   - python==3.8
-  - astropy==4.0.2
+  # Conda dependencies
+  - astropy==5.1
   - h5py==2.10.0
   - jupyterlab==2.2.6
-  - matplotlib==3.3.4
-  - numpy==1.19.2
-  - pandas==1.1.3
+  - matplotlib==3.6.0
+  - numba==0.53.1
+  - numpy==1.23.0
+  - pandas==1.5.0
   - scikit-learn==0.23.2
+  # Pip dependencies
   - pip
   - pip:
     - intervaltree==3.1.0
@@ -16,3 +22,4 @@ dependencies:
     - spacepy==0.2.1
     - termcolor==1.1.0
     - madrigalWeb
+
