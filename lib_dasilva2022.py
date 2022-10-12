@@ -9,8 +9,6 @@ import numpy as np
 import os
 import pandas as pd
 import progressbar
-import pytz
-from spacepy import pycdf
 
 
 INTERVAL_LENGTH = 30              # seconds

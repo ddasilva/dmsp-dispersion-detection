@@ -21,11 +21,11 @@ import os
 import pylab as plt
 from spacepy import pycdf
 from termcolor import cprint
-from typing import Dict
+from typing import Dict, List
 import warnings
 
 import lib_dasilva2022  # Single Dispersion
-#import lib_dasilva202x  # Double Dispersion
+import lib_dasilva202x  # Double Dispersion
 import lib_util
 
 
@@ -34,8 +34,11 @@ class DetectionResult:
     """Holds information associated with a detection."""
     start_time: datetime     # Start time associated with event
     end_time: datetime       # End time associated with event
-    integrand: NDArray
-    energy_curve: NDArray
+
+    times: NDArray
+    integrands: List[NDArray]
+    energy_curves: List[NDArray]
+    
     dmsp_flux_file: str      # Name of DMSP flux file
     dmsp_flux_fh: Dict       # DMSP data, as returned by lib_util
     Bx: float                # Magnetic field X component
@@ -72,15 +75,18 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('-i', metavar='CASE_FILE', required=True,
                         help='Path to case file')
+    parser.add_argument('--threshold', type=float, default=-1,
+                        help='Detection threshold')
+    parser.add_argument('-D', '--double-dispersion', action='store_true',
+                        help='Search double dispersion')    
     parser.add_argument('--no-plot', action='store_true',
                         help='Set to disable plotting')
     parser.add_argument('--simple-plots', action='store_true',
                         help='Do simple plots, without no algorithm information.')
-    parser.add_argument('--threshold', type=float, default=-1
-                        help='Detection threshold')
     
     args = parser.parse_args()
-
+    cprint(f'Parameters: {args}', 'green')
+    
     # Load case file ---------------------------------------------------------
     with open(args.i) as fh:
         case_file = json.load(fh)
@@ -97,14 +103,28 @@ def main():
     for i, dmsp_flux_file in enumerate(sorted(case_file['DMSP_FLUX_FILES'])):
         cprint(f'Processing {i+1}/{len(case_file["DMSP_FLUX_FILES"])} :: '
                f'{dmsp_flux_file}', 'green')
+
+        if args.double_dispersion:
+            cur_detection_results = search_double_dispersion(
+                dmsp_flux_file=dmsp_flux_file,
+                omniweb_fh=omniweb_fh,
+                reverse_effect=case_file['REVERSE_EFFECT'],
+                inverse_effect=case_file['INVERSE_EFFECT'],
+                integral_threshold=args.threshold,
+            )        
+        else:
+            cur_detection_results = search_single_dispersion(
+                dmsp_flux_file=dmsp_flux_file,
+                omniweb_fh=omniweb_fh,
+                reverse_effect=case_file['REVERSE_EFFECT'],
+                inverse_effect=case_file['INVERSE_EFFECT'],
+                integral_threshold=args.threshold,
+            )
         
-        cur_detection_results = search_single_dispersion(
-            dmsp_flux_file=dmsp_flux_file,
-            omniweb_fh=omniweb_fh,
-            reverse_effect=case_file['REVERSE_EFFECT'],
-            inverse_effect=case_file['INVERSE_EFFECT'],
-            integral_threshold=args.threshold,
-        )
+        if cur_detection_results:
+            df = DetectionResult.list_to_dataframe(cur_detection_results)
+            print(df.to_string(index=0))
+
         detection_results.extend(cur_detection_results)
 
 
@@ -137,7 +157,7 @@ def search_single_dispersion(
     dmsp_flux_file, omniweb_fh, reverse_effect, inverse_effect,
     integral_threshold
 ):
-    """Search for events in a DMSP file.
+    """Search for single dispersion events in a DMSP file.
     
     Args
       dmsp_flux_file: Path to HDF5 DMSP file holding spectrogram data (daily)
@@ -149,7 +169,7 @@ def search_single_dispersion(
       detection_results: List of DetectionResult instances describing
         events found and data necessary for plotting.
     """
-    if integral_threshold < -1:
+    if integral_threshold < 0:
         integral_threshold = lib_dasilva2022.DEFAULT_INTEGRAL_THRESHOLD
     
     # Do computation --------------------------------------------------
@@ -172,12 +192,74 @@ def search_single_dispersion(
     # Convert to list of detection result instances --------------------
     detection_results = []
 
+    for _, row in df_walk.iterrows():        
+        # Clean up Eic curve for plot
+        i = dmsp_flux_fh['t'].searchsorted(row['start_time'])
+        j = dmsp_flux_fh['t'].searchsorted(row['end_time'])
+
+        delta_e = np.log10(dmsp_flux_fh['ch_energy'][-1]) - \
+            np.log10(dmsp_flux_fh['ch_energy'][-2])
+        energy_curve = Eic[i:j].copy()
+        energy_curve += 0.5 * delta_e
+        top_e = np.log10(lib_dasilva2022.MAX_SHEATH_ENERGY)
+        energy_curve[energy_curve > top_e] = np.nan
+        
+        detection_results.append(DetectionResult(
+            start_time=row['start_time'],
+            end_time=row['end_time'],
+            times=[dmsp_flux_fh['t'][i:j]],
+            integrands=[integrand[i:j]],
+            energy_curves=[energy_curve],
+            dmsp_flux_file=dmsp_flux_file,
+            dmsp_flux_fh=dmsp_flux_fh,
+            Bx=row['Bx_mean'],
+            By=row['By_mean'],
+            Bz=row['Bz_mean'],
+        ))
+    
+    return detection_results
+
+
+
+def search_double_dispersion(
+    dmsp_flux_file, omniweb_fh, reverse_effect, inverse_effect,
+    integral_threshold
+):
+    """Search for double dispersion events in a DMSP file.
+    
+    Args
+      dmsp_flux_file: Path to HDF5 DMSP file holding spectrogram data (daily)
+      omniweb_fh: Loaded omniweb data in a dictionary
+      reverse_effect: Search for effects in the opposite direction with a
+        magnetic field set to the opposite of the coded threshold.
+      integration: detection threhsold value, set to -1 for default.
+    Returns
+      detection_results: List of DetectionResult instances describing
+        events found and data necessary for plotting.
+    """
+    if integral_threshold < 0:
+        integral_threshold = lib_dasilva202x.DEFAULT_INTEGRAL_THRESHOLD
+    
+    # Do computation --------------------------------------------------
+    try:
+        dmsp_flux_fh = lib_util.read_dmsp_flux_file(dmsp_flux_file)
+    except pycdf.CDFError:
+        return
+
+    df_walk = lib_dasilva202x.walk_and_integrate(
+            dmsp_flux_fh, omniweb_fh, reverse_effect, integral_threshold,
+    )
+
+    # Convert to list of detection result instances --------------------
+    detection_results = []
+
     for _, row in df_walk.iterrows():
         detection_results.append(DetectionResult(
             start_time=row['start_time'],
-            end_time=row['end_time'],            
-            integrand=integrand,
-            energy_curve=Eic,
+            end_time=row['end_time'],
+            times=[row['t'], row['t']],
+            integrands=[row['lower_integrand'], row['upper_integrand']],
+            energy_curves=[row['lower_Ep'], row['upper_Ep']],
             dmsp_flux_file=dmsp_flux_file,
             dmsp_flux_fh=dmsp_flux_fh,
             Bx=row['Bx_mean'],
@@ -203,8 +285,8 @@ def write_plot(
     dmsp_flux_fh = detection_result.dmsp_flux_fh
     start_time = detection_result.start_time
     end_time = detection_result.end_time
-    integrand = detection_result.integrand
-    energy_curve = detection_result.energy_curve
+    integrands = detection_result.integrands
+    energy_curves = detection_result.energy_curves
     Bx = detection_result.Bx
     By = detection_result.By
     Bz = detection_result.Bz
@@ -231,7 +313,7 @@ def write_plot(
         fig, axes = plt.subplots(3, 1, figsize=(18, 9), sharex=True, dpi=600)
         
     # Plot title
-    nonzero = (integrand[orig_i:orig_j] > 0.01).nonzero()[0]
+    nonzero = (integrands[0][orig_i:orig_j] > 0.01).nonzero()[0]
     if nonzero.size > 0:
         first_pos_i = nonzero[0] - 1
         orig_i += first_pos_i
@@ -267,25 +349,17 @@ def write_plot(
         plt.colorbar(im, ax=axes[0]).set_label('Energy Flux')
         
     if not simple_plots:
-        tbin_centers = dmsp_flux_fh['t'][orig_i:orig_j]
-        tbin_centers += 0.5 * np.diff(dmsp_flux_fh['t'][orig_i:orig_j+1])
+        pairs = zip(detection_result.times, energy_curves)
         
-        delta_e = np.log10(dmsp_flux_fh['ch_energy'][-1]) - \
-            np.log10(dmsp_flux_fh['ch_energy'][-2])
-        energy_curve_filtered = energy_curve[orig_i:orig_j].copy()
-        energy_curve_filtered += 0.5 * delta_e
-        top_e = np.log10(lib_dasilva2022.MAX_SHEATH_ENERGY)
-        energy_curve_filtered[energy_curve_filtered > top_e] = np.nan
-        
-        if np.isnan(energy_curve_filtered).all():
-            plt.close()
-            return
-        
-        axes[0].plot(tbin_centers, energy_curve_filtered, 'b*-') 
+        for color_idx, (cur_t, energy_curve) in enumerate(pairs):
+            color = 'bg'[color_idx]
+            axes[0].plot(cur_t, energy_curve, f'*{color}-')
+            
         axes[0].axhline(
             np.log10(lib_dasilva2022.MAX_EIC_ENERGY),
             color='black', linestyle='dashed'
         )
+    
     axes[0].set_ylabel('Ions Energy [eV]')
     adjust_axis_energy_yticks(axes[0])
         
@@ -305,9 +379,15 @@ def write_plot(
     # Scoring function
     if not simple_plots:
         score_range = [-.25, .25]
-        t = dmsp_flux_fh['t']
-        
-        axes[2].fill_between(t[orig_i:orig_j], 0, integrand[orig_i:orig_j])
+
+        if len(integrands) == 1:
+            axes[2].fill_between(detection_result.times[0], 0, integrands[0])
+        else:
+            pairs = zip(detection_result.times, integrands)
+            for color_idx, (cur_t, integrand) in enumerate(pairs):
+                color = 'bg'[color_idx]
+                axes[2].plot(cur_t, integrand, color=color)
+    
         axes[2].axhline(0, color='black', linestyle='dashed')            
         axes[2].set_ylabel('D(t) [Log(eV)/s]')
         axes[2].set_ylim(score_range)
