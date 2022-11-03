@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """Writes a case file for use with analyzing a storm.
 
-See also: visualize_storm.py
+See also: run_model.py
 """
 
 import glob
