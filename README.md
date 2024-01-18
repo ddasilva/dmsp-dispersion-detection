@@ -20,22 +20,29 @@ This code was developed by Daniel da Silva at NASA Goddard Spaceflight Center, w
 
 ## Instructions
 Create and activate the conda environment:
+
 `$ conda env create -f environment.yml`
+
 `$ conda activate dmsp-dispersion`
 
 Now, pick a name for your run. Here, we call it `myrun`. It is going to be between December 1, 2015, and December 31, 2015, using the DMSP F16 satellite. 
 
 Next, use these commands to download DMSP and OMNIWeb data:
+
 `$ python download_dmsp.py 12/01/2015 12/31/2015 myrun --spacecraft_csv 16`
+
 `$ python download_omniweb.py 12/01/2015 12/31/2015 myrun`
 
 Now, we will make a case file. This is an input file for the model to run. 
+
 `$ python make_case_file.py myrun 16`
 
 To run the code in single dispersion mode with the threshold of 0.8, use the following command. Higher threshold means less sensitive and less false positives, but you miss more real events (See da Silva JGR2022 for discussion).
+
 `$ python run_model.py -i case_files/myrun_F16.json --threshold 0.8`
 
 To do a run in double dispersion mode, pass `--double-dispersion`. The thresholds ranges are a little different between single and dispersion mode; double dispersion generally prefers lower thresholds. It is also slower to run (about 50-60 seconds for a day of data).
+
 `$ python run_model.py -i case_files/myrun_F16.json --threshold 0.4 --double-dispersion`
 
 Check the `output/` folder for plots and a CSV of detected events!
