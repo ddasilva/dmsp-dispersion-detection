@@ -19,13 +19,13 @@ import numpy as np
 from numpy.typing import NDArray
 import os
 import pylab as plt
-from spacepy import pycdf
+import cdflib
 from termcolor import cprint
 from typing import Dict, List
 import warnings
 
 import lib_dasilva2022  # Single Dispersion
-import lib_dasilva202x  # Double Dispersion
+import lib_dasilva2024  # Double Dispersion
 import lib_util
 
 
@@ -60,7 +60,7 @@ class DetectionResult:
             df_rows.append(pd.Series(dict(
                 start_time=detection_result.start_time,
                 end_time=detection_result.end_time,
-                dmsp_flux_flie=detection_result.dmsp_flux_file,
+                dmsp_flux_file=detection_result.dmsp_flux_file,
                 Bx=detection_result.Bx,
                 By=detection_result.By,
                 Bz=detection_result.Bz,                
@@ -175,8 +175,8 @@ def search_single_dispersion(
     # Do computation --------------------------------------------------
     try:
         dmsp_flux_fh = lib_util.read_dmsp_flux_file(dmsp_flux_file)
-    except pycdf.CDFError:
-        return
+    except (FileNotFoundError, OSError):
+        return []
 
     dEicdt_smooth, Eic_smooth, Eic = (
         lib_dasilva2022.estimate_log_Eic_smooth_derivative(dmsp_flux_fh)
@@ -238,15 +238,15 @@ def search_double_dispersion(
         events found and data necessary for plotting.
     """
     if integral_threshold < 0:
-        integral_threshold = lib_dasilva202x.DEFAULT_INTEGRAL_THRESHOLD
+        integral_threshold = lib_dasilva2024.DEFAULT_INTEGRAL_THRESHOLD
     
     # Do computation --------------------------------------------------
     try:
         dmsp_flux_fh = lib_util.read_dmsp_flux_file(dmsp_flux_file)
-    except pycdf.CDFError:
-        return
+    except (FileNotFoundError, OSError):
+        return []
 
-    df_walk = lib_dasilva202x.walk_and_integrate(
+    df_walk = lib_dasilva2024.walk_and_integrate(
             dmsp_flux_fh, omniweb_fh, reverse_effect, integral_threshold,
     )
 

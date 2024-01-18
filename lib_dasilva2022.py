@@ -4,7 +4,6 @@ event detection algorithm developed by da Silva in 2020-2022.
 from datetime import datetime, timedelta
 import h5py
 from intervaltree import IntervalTree
-from numba import jit
 import numpy as np
 import os
 import pandas as pd
@@ -291,7 +290,7 @@ def walk_and_integrate(dmsp_flux_fh, omniweb_fh, dLogEicdt_smooth, Eic_smooth,
         return df_match
 
 
-@jit(nopython=True)
+#@jit(nopython=True)
 def clean_Eic(Eic, keep_mask, window_size):
     """Smooth Eic with a mask of points to include in moving average.
     

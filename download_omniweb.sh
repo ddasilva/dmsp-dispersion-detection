@@ -13,6 +13,6 @@ for year in $(seq ${startyear} ${endyear}); do
 	outdir=data/${year}/${mon}
 	fname=omni_hro_1min_${year}${mon}01_v01.cdf
 	mkdir -p ${outdir}
-	[ -d ${outdir} ] && wget https://spdf.gsfc.nasa.gov/pub/data/omni/omni_cdaweb/hro_1min/$year/${fname} -O ${outdir}/${fname}
+	[ -d ${outdir} ] && wget 
     done
 done

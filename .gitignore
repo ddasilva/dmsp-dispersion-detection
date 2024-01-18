@@ -1,3 +1,4 @@
+output
 case_files/*.json
 *.png
 data

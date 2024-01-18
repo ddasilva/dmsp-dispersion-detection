@@ -5,7 +5,8 @@ from datetime import datetime, timedelta
 import h5py
 import numpy as np
 import pytz
-from spacepy import pycdf
+import cdflib
+import pandas as pd
 
 import lib_dasilva2022
 
@@ -30,19 +31,18 @@ def read_omniweb_files(omniweb_files, silent=False):
         # Open file
         if not silent:
             print(f'Loading {omniweb_file}')
-        omniweb_cdf = pycdf.CDF(omniweb_file)
-
+        omniweb_cdf = cdflib.CDF(omniweb_file)
+        epochs = cdflib.cdfepoch.to_datetime(omniweb_cdf.varget("Epoch"))
+        epochs = pd.to_datetime(epochs).to_pydatetime()
+        
         # Read the data
         t_items.append(np.array([time.replace(tzinfo=pytz.utc)
-                           for time in omniweb_cdf['Epoch'][:]]))
+                                 for time in epochs]))
 
-        Bx_items.append(omniweb_cdf['BX_GSE'][:])
-        By_items.append(omniweb_cdf['BY_GSM'][:])
-        Bz_items.append(omniweb_cdf['BZ_GSM'][:])
-        n_items.append(omniweb_cdf['proton_density'][:])
-        
-        # Close file
-        omniweb_cdf.close()
+        Bx_items.append(omniweb_cdf.varget('BX_GSE'))
+        By_items.append(omniweb_cdf.varget('BY_GSM'))
+        Bz_items.append(omniweb_cdf.varget('BZ_GSM'))
+        n_items.append(omniweb_cdf.varget('proton_density'))
 
     # Merge arrays list of items
     omniweb_fh = {}
@@ -80,27 +80,23 @@ def read_dmsp_flux_file(dmsp_flux_filename):
         dmsp_flux_fh['mlt'] = hdf['Data']['Array Layout']['1D Parameters']['mlt'][:]
         dmsp_flux_fh['el_d_ener'] = hdf['Data']['Array Layout']['2D Parameters']['el_d_ener'][:]
         dmsp_flux_fh['ion_d_ener'] = hdf['Data']['Array Layout']['2D Parameters']['ion_d_ener'][:]
-        
-        # Close file
-        hdf.close()
-        
+                
     # Read DMSP Data in CDF Format
     # ------------------------------------------------------------------------------------
     elif dmsp_flux_filename.endswith('cdf'):
 
         # Open file
-        cdf = pycdf.CDF(dmsp_flux_filename)
-
+        cdf = cdflib.CDF(dmsp_flux_filename)
+        epochs = cdflib.cdfepoch.to_datetime(cdf.varget("Epoch"))
+        epochs = pd.to_datetime(epochs).to_pydatetime()
+        
         dmsp_flux_fh = {}    
-        dmsp_flux_fh['t'] = np.array([t.replace(tzinfo=pytz.utc) for t in cdf['Epoch'][:]])
-        dmsp_flux_fh['ch_energy'] = cdf['CHANNEL_ENERGIES'][:][::-1]
-        dmsp_flux_fh['mlat'] = cdf['SC_AACGM_LAT'][:]
-        dmsp_flux_fh['mlt'] = cdf['SC_AACGM_LTIME'][:]
-        dmsp_flux_fh['el_d_ener'] = cdf['ELE_DIFF_ENERGY_FLUX'][:].T
-        dmsp_flux_fh['ion_d_ener'] = cdf['ION_DIFF_ENERGY_FLUX'][:].T
-
-        # Close file
-        cdf.close()
+        dmsp_flux_fh['t'] = np.array([t.replace(tzinfo=pytz.utc) for t in epochs])
+        dmsp_flux_fh['ch_energy'] = cdf.varget('CHANNEL_ENERGIES')[::-1]
+        dmsp_flux_fh['mlat'] = cdf.varget('SC_AACGM_LAT')
+        dmsp_flux_fh['mlt'] = cdf.varget('SC_AACGM_LTIME')
+        dmsp_flux_fh['el_d_ener'] = cdf.varget('ELE_DIFF_ENERGY_FLUX').T
+        dmsp_flux_fh['ion_d_ener'] = cdf.varget('ION_DIFF_ENERGY_FLUX').T
         
     # Crash for any other format
     # ------------------------------------------------------------------------------------

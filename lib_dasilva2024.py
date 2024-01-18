@@ -3,7 +3,6 @@ method developed by da Silva.
 """
 from datetime import timedelta
 from intervaltree import IntervalTree
-from numba import jit
 import numpy as np
 import pandas as pd
 from scipy.signal import find_peaks, savgol_filter
@@ -309,7 +308,7 @@ def calculate_dual_Ep(dmsp_flux_fh, start_i=None, stop_j=None, _cache={}):
 
 
 
-@jit(nopython=True)
+#@jit(nopython=True)
 def clean_Ep(Ep, keep_mask, window_size):
     """Smooth Ep with a mask of points to include in moving average.
     
