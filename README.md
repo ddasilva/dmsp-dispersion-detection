@@ -41,8 +41,8 @@ To run the code in single dispersion mode with the threshold of 0.8, use the fol
 
 `$ python run_model.py -i case_files/myrun_F16.json --threshold 0.8`
 
-To do a run in double dispersion mode, pass `--double-dispersion`. The thresholds ranges are a little different between single and dispersion mode; double dispersion generally prefers lower thresholds. It is also slower to run (about 50-60 seconds for a day of data).
+To do a run in double dispersion mode, pass `--double-dispersion`. The thresholds ranges are a little different between single and dispersion mode: double dispersion mode prefers lower thresholds (try 0.1 to start). Double dispersion mode is also slower at about 50-60 seconds for a day of data.
 
-`$ python run_model.py -i case_files/myrun_F16.json --threshold 0.4 --double-dispersion`
+`$ python run_model.py -i case_files/myrun_F16.json --threshold 0.1 --double-dispersion`
 
 Check the `output/` folder for plots and a CSV of detected events!
