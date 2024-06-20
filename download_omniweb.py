@@ -25,7 +25,6 @@ while cur_date < end_date:
     month, year = cur_date.month, cur_date.year
     cprint(f"Downloading omniweb data for {month}/{year} from URL:", "green")    
 
-
     fname = f"omni_hro_1min_{year}{month:02d}01_v01.cdf"
     url = f"https://spdf.gsfc.nasa.gov/pub/data/omni/omni_cdaweb/hro_1min/{year}/{fname} "
     outfile = f"data/{args.run_name}/omni/{year}/{fname}"
