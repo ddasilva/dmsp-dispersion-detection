@@ -2,6 +2,8 @@
 
 import subprocess
 import argparse
+import os
+import shutil
 from termcolor import cprint
 
 parser = argparse.ArgumentParser()
@@ -13,19 +15,24 @@ args = parser.parse_args()
 
 sc_nums = args.spacecraft_csv.split(",")
 
+if os.name == "nt":
+    cmd_path = subprocess.getoutput("where globalDownload.py") 
+else:
+    cmd_path = subprocess.getoutput("which globalDownload.py")
+
 cprint(f"Download data for spacecrafts: {sc_nums}", "green")
 
 for sc_num in args.spacecraft_csv.split(","):
     cmd = (
-        "globalDownload.py "
+        "python \"" + cmd_path + "\" "
         "--verbose "
         "--url=http://cedar.openmadrigal.org "
-        f"--outputDir=./data/{args.run_name}/Satellite_F{sc_num} --user_fullname='Science User' "
+        f"--outputDir=./data/{args.run_name}/Satellite_F{sc_num} --user_fullname=ScienceUser "
         "--user_email=noemail@gmail.com "
-        "--user_affiliation='NASA' "
-        "--format='hdf5' "
-        f"--startDate='{args.start_time}' "
-        f"--endDate='{args.end_time}' "
+        '--user_affiliation=NASA '
+        '--format=hdf5 '
+        f'--startDate=' + args.start_time + ' '
+        f'--endDate=' + args.end_time + ' '
         "--inst=8100 "
         f"--kindat=102{sc_num}"
     )
