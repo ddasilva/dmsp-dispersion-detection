@@ -51,6 +51,10 @@ def estimate_reconn_rate(dmsp_flux_fh, Eic, i=None, j=None):
     dt = np.array(dt) * units.s
     
     dEicdt = dEic/dt
+
+    # Estimate error in numerical derivative from Taylor series remainder
+    ddEicddt = np.gradient(np.gradient(Eic, t, edge_order=2), t, edge_order=2)
+    dEicdt_errest = dt*np.abs(ddEicddt)/2
     
     # Magnetc field at MP
     Bmp = 50 * units.nT
@@ -77,19 +81,30 @@ def estimate_reconn_rate(dmsp_flux_fh, Eic, i=None, j=None):
             /
             (1 + (d/2) * np.sqrt(m/2) * Eic**(-3/2) * np.abs(dEicdt))
         )
+
+        Ey_errest = np.abs(
+            (Bi * Vs * np.cos(alpha)*(d/2) * np.sqrt(m/2) * Eic**(-3/2))
+            /
+            (1 + (d/2) * np.sqrt(m/2) * Eic**(-3/2) * np.abs(dEicdt))**2.0
+        )*dEicdt_errest
+
         dy = np.sqrt(Bi / Bmp)
         
         Ey_final = Ey / dy
-        
+        Ey_final_errest = Ey_errest / dy
+
         Ey_iono.append(Ey.to(units.mV/units.m))
+        Ey_iono_errest.append(Ey_errest.to(units.mV/units.m))
         Ey_mpause.append(Ey_final.to(units.mV/units.m))
 
     Ey_iono = np.array(Ey_iono)
+    Ey_iono_errest = np.array(Ey_iono_errest)
     Ey_mpause = np.array(Ey_mpause)
+    Ey_mpause_errest = np.array(Ey_mpause_errest)
 
     # Remove points where DeltaEic=0
     for i in range(PRECIP_TRAVEL_PATHS.size):
         Ey_iono[i, :-1][np.diff(Eic)==0] = np.nan
         Ey_mpause[i, :-1][np.diff(Eic)==0] = np.nan
     
-    return PRECIP_TRAVEL_PATHS, Ey_iono, Ey_mpause
+    return PRECIP_TRAVEL_PATHS, Ey_iono, Ey_mpause, Ey_errest, Ey_mpause_errest
